@@ -43,6 +43,7 @@ if ("serviceWorker" in navigator) {
 // ---- player, lyrics, sync, auto-scroll ------------------------------------
 
 const player = new Player("player", {
+  onReady: () => applyVolume(),
   onPlayingChange: (playing) => {
     $("touch-play").textContent = playing ? "⏸" : "▶";
     playing ? loop.start() : loop.stop();
@@ -89,6 +90,7 @@ $("jump-button").addEventListener("click", (e) => {
 });
 
 $("touch-play").addEventListener("click", () => onCommand("togglePlay"));
+$("offline-pill").addEventListener("click", () => toast($("mode-banner").textContent, "info", 5000));
 $("touch-prev").addEventListener("click", () => onCommand("prevLine"));
 $("touch-next").addEventListener("click", () => onCommand("nextLine"));
 
@@ -183,6 +185,45 @@ function serverActionsAllowed(what) {
   return true;
 }
 
+// ---- volume (our own control; YouTube's popup slider closes in small players) --
+
+function showVolume() {
+  const { volume, muted } = state.settings;
+  $("volume-slider").value = String(volume);
+  $("mute-button").textContent = muted || volume === 0 ? "🔇" : volume < 50 ? "🔉" : "🔊";
+}
+
+function applyVolume() {
+  player.setVolume(state.settings.volume, state.settings.muted);
+  showVolume();
+}
+
+$("volume-slider").addEventListener("input", (e) => {
+  state.settings.volume = Number(e.target.value);
+  state.settings.muted = false;
+  applyVolume();
+});
+$("volume-slider").addEventListener("change", (e) => {
+  e.target.blur(); // keep ←/→ for line stepping
+  updateSettings({ volume: state.settings.volume, muted: false });
+});
+$("mute-button").addEventListener("click", (e) => {
+  e.currentTarget.blur();
+  updateSettings({ muted: !state.settings.muted });
+  applyVolume();
+});
+
+// Follow changes made in YouTube's own controls (so our slider never lies).
+setInterval(() => {
+  if (document.hidden || !player.isReady || document.activeElement === $("volume-slider")) return;
+  const volume = player.getVolume();
+  const muted = player.isMuted();
+  if (volume !== state.settings.volume || muted !== state.settings.muted) {
+    updateSettings({ volume, muted });
+    showVolume();
+  }
+}, 1000);
+
 // ---- settings ---------------------------------------------------------------
 
 function applySettings() {
@@ -226,6 +267,7 @@ document.addEventListener("click", (e) => {
 });
 
 applySettings();
+showVolume();
 
 // ---- offset ([ / ]) ----------------------------------------------------------
 
@@ -475,8 +517,10 @@ function setMode({ online, role }) {
   document.body.classList.toggle("role-guest", data.role !== "owner");
   const banner = $("mode-banner");
   banner.hidden = online;
+  $("offline-pill").hidden = online;
   if (!online) {
     banner.textContent = `離線模式 · 顯示這台裝置上最後同步的 ${data.count} 首歌；建立、重翻、換影片、刪除暫停使用`;
+    $("offline-pill").textContent = `離線 · ${data.count} 首`;
   }
   showSyncStatus();
   showQuota();

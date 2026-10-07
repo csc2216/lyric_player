@@ -105,7 +105,9 @@ describe("normalizeSettings", () => {
 
   test("keeps valid values, drops invalid", () => {
     const s = normalizeSettings({ autoScroll: false, layout: "inline", theme: "neon", preroll: "0.3", extra: 1 });
-    assert.deepEqual(s, { autoScroll: false, layout: "inline", theme: "auto", preroll: 0.3, sidebarCollapsed: false });
+    assert.deepEqual(s, {
+      autoScroll: false, layout: "inline", theme: "auto", preroll: 0.3, sidebarCollapsed: false, volume: 100, muted: false,
+    });
     assert.equal(normalizeSettings({ sidebarCollapsed: true }).sidebarCollapsed, true);
     assert.equal(normalizeSettings({ sidebarCollapsed: "yes" }).sidebarCollapsed, false);
   });
@@ -115,5 +117,14 @@ describe("normalizeSettings", () => {
     assert.equal(normalizeSettings({ preroll: -1 }).preroll, 0);
     assert.equal(normalizeSettings({ preroll: "abc" }).preroll, DEFAULTS.preroll);
     assert.equal(normalizeSettings({ preroll: "" }).preroll, DEFAULTS.preroll);
+  });
+
+  test("volume is clamped to 0–100 and rounded", () => {
+    assert.equal(normalizeSettings({ volume: 150 }).volume, 100);
+    assert.equal(normalizeSettings({ volume: -5 }).volume, 0);
+    assert.equal(normalizeSettings({ volume: "42.6" }).volume, 43);
+    assert.equal(normalizeSettings({ volume: "loud" }).volume, 100);
+    assert.equal(normalizeSettings({ muted: true }).muted, true);
+    assert.equal(normalizeSettings({ muted: "yes" }).muted, false);
   });
 });

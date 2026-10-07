@@ -59,7 +59,10 @@ export class Player {
               height: "100%",
               playerVars: { disablekb: 0, rel: 0, modestbranding: 1, playsinline: 1 },
               events: {
-                onReady: () => resolve(),
+                onReady: () => {
+                  this.handlers.onReady?.();
+                  resolve();
+                },
                 onStateChange: (e) => this.handlers.onPlayingChange?.(e.data === YT.PlayerState.PLAYING),
                 onError: (e) => this.handlers.onError?.(e.data),
               },
@@ -100,6 +103,22 @@ export class Player {
     if (!this.ready) return;
     await this.ready;
     this.yt.seekTo(seconds, true);
+  }
+
+  /** 0–100, or null before the player exists. */
+  getVolume() {
+    return this.isReady ? this.yt.getVolume() : null;
+  }
+
+  isMuted() {
+    return this.isReady ? this.yt.isMuted() : false;
+  }
+
+  setVolume(volume, muted) {
+    if (!this.isReady) return;
+    this.yt.setVolume(volume);
+    if (muted) this.yt.mute();
+    else this.yt.unMute();
   }
 
   pause() {

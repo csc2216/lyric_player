@@ -32,6 +32,8 @@
       <div class="sidebar-head">
         <h1 class="app-title">歌詞播放器</h1>
         <button id="sidebar-toggle" type="button" class="icon sidebar-toggle" title="收合歌曲庫（B）" aria-expanded="true">«</button>
+        <!-- narrow screens: compact offline indicator instead of the floating banner -->
+        <button id="offline-pill" type="button" class="offline-pill" hidden>離線</button>
       </div>
       <div id="sync-status" class="sync-status" role="status"></div>
       <input id="tree-filter" class="tree-filter" type="search" placeholder="過濾歌手或歌名" autocomplete="off">
@@ -83,6 +85,10 @@
             <button id="offset-minus" type="button" class="small" title="歌詞提早 100ms（[）">−</button>
             <span id="offset-value" class="offset-value">0 ms</span>
             <button id="offset-plus" type="button" class="small" title="歌詞延後 100ms（]）">+</button>
+          </span>
+          <span class="volume-ctl" title="音量（YouTube 播放器較小時，它自己的音量條很難拉）">
+            <button id="mute-button" type="button" class="icon" aria-label="靜音 / 取消靜音">🔊</button>
+            <input id="volume-slider" type="range" min="0" max="100" step="1" aria-label="音量">
           </span>
           <button id="video-button" type="button" class="small">換影片</button>
           <button id="info-button" type="button" class="small">編輯資訊</button>

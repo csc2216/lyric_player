@@ -1262,3 +1262,51 @@ body.offline .line-actions {
     padding-bottom: 60vh;
   }
 }
+
+/* ---- our volume control (desktop; touch devices use hardware buttons) ---- */
+
+.volume-ctl {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.volume-ctl input[type="range"] {
+  width: 90px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  accent-color: var(--accent);
+}
+
+@media (pointer: coarse) {
+  .volume-ctl {
+    display: none;
+  }
+}
+
+/* ---- offline indicator: floating banner on wide screens, small tag in the top bar on narrow ones ---- */
+
+.offline-pill {
+  flex: none;
+  margin-left: auto;
+  padding: 2px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--warn);
+  color: #fff;
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+@media (min-width: 1000px) {
+  .offline-pill {
+    display: none !important;
+  }
+}
+
+@media (max-width: 999px) {
+  .mode-banner {
+    display: none !important;
+  }
+}
