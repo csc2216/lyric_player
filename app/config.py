@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -10,6 +11,7 @@ class Settings(BaseSettings):
     translate_model: str = "claude-sonnet-5-5"
     library_dir: Path = Path("./library")
     port: int = 8765
+    video_preference: Literal["sync", "mv"] = "sync"
 
 
 settings = Settings()

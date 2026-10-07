@@ -1,0 +1,13 @@
+{
+  "_type": "playlist",
+  "entries": [
+    {"id": "mvAAAAAAAAA", "title": "Test Artist 'Paper Moon' Official MV", "channel": "Test Artist Official", "duration": 236.0},
+    {"id": "topicBBBBBB", "title": "Paper Moon", "channel": "Test Artist - Topic", "duration": 215.0},
+    {"id": "coverCCCCCC", "title": "Paper Moon (cover by someone)", "channel": "Some Singer", "duration": 214.0},
+    {"id": "lyricsDDDDD", "title": "Test Artist - Paper Moon (Lyrics)", "channel": "Lyric Hub", "duration": 214.5},
+    {"id": "liveEEEEEEE", "title": "Paper Moon LIVE at Somewhere", "channel": "Test Artist", "duration": 260.0},
+    {"id": "spedFFFFFFF", "title": "paper moon (sped up)", "channel": "nightcore x", "duration": 170.0},
+    {"id": "liveGGGGGGG", "title": "streaming now", "channel": "x", "duration": null, "live_status": "is_live"},
+    {"id": "danceHHHHHH", "title": "Paper Moon Dance Practice", "channel": "Test Artist", "duration": 216.0}
+  ]
+}

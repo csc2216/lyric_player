@@ -1,0 +1,52 @@
+[
+  {
+    "id": 101,
+    "trackName": "Paper Moon (Remix)",
+    "artistName": "Test Artist",
+    "albumName": "Remixes",
+    "duration": 240.0,
+    "instrumental": false,
+    "plainLyrics": "line one\nline two",
+    "syncedLyrics": "[00:10.00]line one\n[00:14.00]line two"
+  },
+  {
+    "id": 102,
+    "trackName": "Paper Moon",
+    "artistName": "Test Artist",
+    "albumName": "First Album",
+    "duration": 214.0,
+    "instrumental": false,
+    "plainLyrics": "line one\nline two\n\n第三行",
+    "syncedLyrics": "[00:10.00]line one\n[00:14.00]line two\n[00:30.00]第三行"
+  },
+  {
+    "id": 103,
+    "trackName": "Paper Moon",
+    "artistName": "Test Artist",
+    "albumName": "First Album",
+    "duration": 214.0,
+    "instrumental": false,
+    "plainLyrics": "line one\nline two\n\n第三行",
+    "syncedLyrics": null
+  },
+  {
+    "id": 104,
+    "trackName": "Paper Moon (Inst.)",
+    "artistName": "Test Artist",
+    "albumName": "First Album",
+    "duration": 214.0,
+    "instrumental": true,
+    "plainLyrics": null,
+    "syncedLyrics": null
+  },
+  {
+    "id": 105,
+    "trackName": "Something Else",
+    "artistName": "Other Band",
+    "albumName": null,
+    "duration": 180.0,
+    "instrumental": false,
+    "plainLyrics": "x",
+    "syncedLyrics": "[00:01.00]x"
+  }
+]
