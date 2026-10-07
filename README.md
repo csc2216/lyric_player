@@ -325,7 +325,7 @@ uv lock --upgrade-package yt-dlp && uv sync
 - **影片不能播**：被禁止嵌入（錯誤 101/150）或已刪除（100）時會自動換下一個候選；候選都不行會打開「換影片」，貼上別的 YouTube 網址即可。
 - **8765 port 被別的程式占用**：一鍵啟動視窗會顯示「伺服器啟動失敗」（上面有 `address already in use`）。關掉占用的程式，或在 Windows 設定環境變數 `LYRIC_PLAYER_PORT` 換 port。（如果占用的是本程式自己，.bat 會直接開瀏覽器。）
 - **iPad 加入主畫面後還是有網址列 / 沒有離線功能**：一定要用 `https://….ts.net` 網址加入（`http://` 不行），並且用 Safari 加入。
-- **Windows 瀏覽器連不到 localhost:8765**：WSL 預設會轉發 localhost；不行的話在 WSL 執行 `hostname -I`，改用印出的 IP（例如 `http://172.x.x.x:8765`，一鍵啟動已用 `--host 0.0.0.0`）。
+- **Windows 瀏覽器連不到 localhost:8765**：伺服器只聽 `127.0.0.1`（其他裝置一律透過 Tailscale），靠 WSL 的 localhost 轉發讓 Windows 連到。若 `%USERPROFILE%\.wslconfig` 裡有 `localhostForwarding=false`，把它刪掉或改成 `true`，再執行 `wsl --shutdown` 重開。
 - **備份 / 搬家**：整個 `library/` 資料夾就是全部的歌（每首一個 JSON），複製走即可。
 
 ---

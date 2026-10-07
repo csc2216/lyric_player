@@ -227,3 +227,17 @@ def test_me_explains_ignored_identity(env):
         app, base_url=SERVE_HOST, headers={"Tailscale-User-Login": "x@y.z"}, client=("100.64.0.9", 1)
     )
     assert "--no-proxy-headers" in client.get("/api/me").json()["note"]
+
+
+def test_server_listens_on_loopback_only():
+    """Windows reaches WSL via localhost forwarding and tailscale serve relays from 127.0.0.1;
+    binding 0.0.0.0 would let tailnet / LAN devices bypass serve (and the PIN/identity rules)."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    for script in ("run.sh", "scripts/serve_windows.sh", "start-lyric-player.bat"):
+        text = (root / script).read_text(encoding="utf-8")
+        assert "0.0.0.0" not in text, script
+    for script in ("run.sh", "scripts/serve_windows.sh"):
+        text = (root / script).read_text(encoding="utf-8")
+        assert "uvicorn app.main:app --host 127.0.0.1 " in text, script

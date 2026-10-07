@@ -20,9 +20,12 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
-# --no-proxy-headers: keep the real peer address. tailscale serve relays from
-# 127.0.0.1; the app trusts its identity headers only from loopback (app/auth.py).
-uv run uvicorn app.main:app --host 0.0.0.0 --port "$PORT" --no-proxy-headers &
+# --host 127.0.0.1: the Windows browser reaches it through WSL's localhost
+# forwarding and tailscale serve relays from 127.0.0.1, so nothing needs the
+# port on other interfaces (and tailnet / LAN devices can't bypass serve).
+# --no-proxy-headers: keep the real peer address; the app trusts identity
+# headers only from loopback (app/auth.py).
+uv run uvicorn app.main:app --host 127.0.0.1 --port "$PORT" --no-proxy-headers &
 SERVER_PID=$!
 
 cleanup() {
