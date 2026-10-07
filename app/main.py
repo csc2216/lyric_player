@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import router
+from app.auth import Forbidden, PinRequired, QuotaExceeded
 from app.services.library import LibraryError, SongExists, SongNotFound
 from app.services.lrclib import LrclibError
 from app.services.pipeline import NotFound, PipelineError
@@ -19,6 +20,9 @@ app.include_router(router)
 
 # Most specific first: the first matching class in this list wins.
 ERROR_STATUS: list[tuple[type[Exception], int]] = [
+    (PinRequired, 401),
+    (Forbidden, 403),
+    (QuotaExceeded, 429),
     (SongNotFound, 404),
     (NotFound, 404),
     (SongExists, 409),
@@ -31,9 +35,20 @@ ERROR_STATUS: list[tuple[type[Exception], int]] = [
 ]
 
 
+# Machine-readable codes for errors the frontend reacts to (PIN dialog, guest UI).
+ERROR_CODES: dict[type[Exception], str] = {
+    PinRequired: "pin_required",
+    Forbidden: "forbidden",
+    QuotaExceeded: "quota_exceeded",
+}
+
+
 async def handle_known_error(request: Request, exc: Exception) -> JSONResponse:
     status = next(code for cls, code in ERROR_STATUS if isinstance(exc, cls))
-    return JSONResponse({"detail": str(exc)}, status_code=status)
+    body = {"detail": str(exc)}
+    if type(exc) in ERROR_CODES:
+        body["code"] = ERROR_CODES[type(exc)]
+    return JSONResponse(body, status_code=status)
 
 
 for cls, _ in ERROR_STATUS:

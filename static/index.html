@@ -2,26 +2,38 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>歌詞播放器</title>
   <link rel="stylesheet" href="/style.css">
+  <!-- installable app (iPad / Android "add to home screen") -->
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" href="/icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="theme-color" content="#2f6fde">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="歌詞播放器">
   <script>
     // Apply saved theme / sidebar state before first paint (no flash).
     try {
       const s = JSON.parse(localStorage.getItem("lyricPlayer.settings") || "{}");
       if (s.theme === "light" || s.theme === "dark") document.documentElement.dataset.theme = s.theme;
-      const narrow = matchMedia("(max-width: 999px)").matches;
+      // narrow screens, and touch screens up to small-laptop width, start with the library collapsed
+      const narrow = matchMedia("(max-width: 999px), (pointer: coarse) and (max-width: 1199px)").matches;
       if (s.sidebarCollapsed === true || narrow) document.documentElement.classList.add("sidebar-collapsed");
     } catch {}
   </script>
 </head>
 <body>
+  <div id="mode-banner" class="mode-banner" role="status" hidden></div>
   <div class="app">
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-head">
         <h1 class="app-title">歌詞播放器</h1>
         <button id="sidebar-toggle" type="button" class="icon sidebar-toggle" title="收合歌曲庫（B）" aria-expanded="true">«</button>
       </div>
+      <div id="sync-status" class="sync-status" role="status"></div>
       <input id="tree-filter" class="tree-filter" type="search" placeholder="過濾歌手或歌名" autocomplete="off">
       <nav id="tree" class="tree" aria-label="歌曲庫"></nav>
     </aside>
@@ -52,6 +64,7 @@
           </div>
         </div>
       </div>
+      <div id="build-quota" class="build-quota" hidden></div>
       <div id="status" class="status" role="status" aria-live="polite" hidden></div>
 
       <div id="song-area" class="song-area" hidden>
@@ -92,12 +105,31 @@
       </section>
       <div id="lyrics" class="lyrics"></div>
       <div class="jump-anchor">
-        <button id="jump-button" type="button" class="jump-button" hidden>回到目前歌詞 <kbd>C</kbd></button>
+        <div class="float-stack">
+          <button id="jump-button" type="button" class="jump-button" hidden>回到目前歌詞 <kbd>C</kbd></button>
+          <!-- touch screens only (CSS): big play / previous / next buttons -->
+          <div id="touch-controls" class="touch-controls" role="toolbar" aria-label="播放控制">
+            <button id="touch-prev" type="button" aria-label="上一行">⏮</button>
+            <button id="touch-play" type="button" aria-label="播放 / 暫停">▶</button>
+            <button id="touch-next" type="button" aria-label="下一行">⏭</button>
+          </div>
+        </div>
       </div>
     </main>
   </div>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <dialog id="pin-dialog" class="pin-dialog">
+    <form id="pin-form" method="dialog">
+      <h2>歌詞播放器</h2>
+      <p>請輸入主人給你的 PIN 碼。</p>
+      <input id="pin-input" type="password" inputmode="numeric" autocomplete="one-time-code" required>
+      <p id="pin-error" class="pin-error" hidden></p>
+      <button type="submit">進入</button>
+    </form>
+  </dialog>
+  <div id="blocked" class="blocked" hidden></div>
   <script type="module" src="/js/main.js"></script>
 </body>
 </html>

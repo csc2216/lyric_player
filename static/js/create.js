@@ -7,8 +7,10 @@ import { button, el, status } from "./ui.js";
 /**
  * @param {object} opts
  * @param {(res: object) => Promise<void>} opts.onBuilt called with the build response
+ * @param {() => string|null} opts.blockedReason why creating is unavailable right now (offline), or null
+ * @param {() => void} opts.afterAttempt e.g. refresh the visitor's remaining builds
  */
-export function setupCreate({ onBuilt }) {
+export function setupCreate({ onBuilt, blockedReason = () => null, afterAttempt = () => {} }) {
   const form = document.getElementById("create-form");
   const input = document.getElementById("create-input");
   const submit = document.getElementById("create-button");
@@ -46,6 +48,7 @@ export function setupCreate({ onBuilt }) {
       status.set("error", `建立失敗：${err.message}`);
     } finally {
       setBusy(false);
+      afterAttempt();
     }
   }
 
@@ -113,6 +116,11 @@ export function setupCreate({ onBuilt }) {
     e.preventDefault();
     const query = input.value.trim();
     if (!query || busy) return;
+    const blocked = blockedReason();
+    if (blocked) {
+      status.set("error", blocked);
+      return;
+    }
     hideCandidates();
     setBusy(true);
     status.set("busy", "搜尋中：在 LRCLIB 找歌詞、在 YouTube 找影片…");

@@ -122,7 +122,15 @@ class Library:
                     log.warning("skipping unreadable song %s: %s", f, e)
                     continue
                 artist_name = artist_name or song.artist
-                songs.append({"title": song.title, "title_slug": f.stem, "synced": song.synced})
+                songs.append(
+                    {
+                        "title": song.title,
+                        "title_slug": f.stem,
+                        "synced": song.synced,
+                        # lets devices tell which songs changed since their last sync
+                        "updated_at": song.updated_at.isoformat().replace("+00:00", "Z"),
+                    }
+                )
             if not songs:
                 continue
             songs.sort(key=lambda s: _sort_key(s["title"]))

@@ -15,8 +15,9 @@ rem Already running (e.g. another window or ./run.sh)? Just open the browser.
 curl.exe -sf -o nul -m 2 "%URL%/api/library"
 if not errorlevel 1 (
   echo 伺服器已在執行：%URL%
+  wsl.exe --cd "%~dp0." -- bash scripts/tailscale_serve.sh %PORT%
   if /i not "%~1"=="--no-browser" start "" "%URL%"
-  timeout /t 3 >nul 2>nul
+  timeout /t 6 >nul 2>nul
   exit /b 0
 )
 

@@ -20,7 +20,9 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
-uv run uvicorn app.main:app --host 0.0.0.0 --port "$PORT" &
+# --no-proxy-headers: keep the real peer address. tailscale serve relays from
+# 127.0.0.1; the app trusts its identity headers only from loopback (app/auth.py).
+uv run uvicorn app.main:app --host 0.0.0.0 --port "$PORT" --no-proxy-headers &
 SERVER_PID=$!
 
 cleanup() {
@@ -49,6 +51,7 @@ fi
 
 echo
 echo "伺服器運行中：http://localhost:$PORT"
+bash scripts/tailscale_serve.sh "$PORT"
 echo "關閉此視窗即停止伺服器。"
 if [ "$OPEN_BROWSER" = 1 ]; then
   # cmd.exe complains about UNC working directories, so run it from C:

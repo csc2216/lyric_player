@@ -61,6 +61,11 @@
   box-sizing: border-box;
 }
 
+/* `hidden` must win over any display rule below (e.g. the full-screen .blocked overlay) */
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   height: 100%;
@@ -906,7 +911,7 @@ body.layout-inline .lyrics-col {
 /* "back to current line": bottom-right corner of the lyrics column */
 .jump-anchor {
   position: sticky;
-  bottom: 20px;
+  bottom: calc(20px + env(safe-area-inset-bottom));
   display: flex;
   justify-content: flex-end;
   align-items: flex-end; /* don't stretch the button to the 0px height */
@@ -942,18 +947,19 @@ body.video-expanded .expand-close {
   display: block;
 }
 
-/* ---- narrow screens: stack sidebar, video area, lyrics ---- */
+/* ---- narrow screens (phones, iPad portrait): video fixed on top, lyrics fill the rest ---- */
 
 @media (max-width: 999px) {
   .app,
   .sidebar-collapsed .app {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto auto;
-    height: auto;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    height: 100vh;
+    height: 100dvh;
   }
 
   .sidebar {
-    max-height: 40vh;
+    max-height: 45dvh;
     border-right: 0;
     border-bottom: 1px solid var(--border);
   }
@@ -963,14 +969,35 @@ body.video-expanded .expand-close {
     padding: 6px 12px;
   }
 
+  /* video + controls: capped height, scrolls on its own; the video stays pinned */
   .center {
-    overflow: visible;
+    max-height: 48dvh;
+    padding: 0 12px 10px;
+    gap: 8px;
     border-right: 0;
     border-bottom: 1px solid var(--border);
   }
 
+  .center-head {
+    padding-top: 8px;
+  }
+
+  .song-area {
+    order: -1; /* video first, the create box below the song tools */
+    gap: 8px;
+  }
+
+  .song-area .player-box {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    width: min(100%, calc(26dvh * 16 / 9)); /* smaller video, centered */
+    margin: 0 auto;
+    border-radius: 0 0 var(--radius) var(--radius);
+  }
+
   .lyrics-col {
-    height: 75vh; /* still its own scroll container */
+    height: auto; /* the 1fr row: everything below the controls */
   }
 
   .lyrics,
@@ -981,9 +1008,16 @@ body.video-expanded .expand-close {
     padding-right: 16px;
   }
 
+  .lyrics {
+    padding-top: 12px;
+  }
+
   body.video-expanded .player-box,
   .sidebar-collapsed body.video-expanded .player-box {
     left: 0;
+    width: auto;
+    margin: 0;
+    border-radius: 0;
   }
 }
 
@@ -1017,4 +1051,214 @@ body.tapping .line-actions {
   outline-offset: -2px;
   background: var(--accent-soft);
   opacity: 1;
+}
+
+/* ==== devices, visitors, offline ==== */
+
+/* iPhone/iPad home-screen app: content stays clear of the status bar and home indicator */
+.app {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+}
+
+.mode-banner {
+  position: fixed;
+  top: calc(8px + env(safe-area-inset-top));
+  left: 50%;
+  z-index: 40;
+  max-width: calc(100% - 24px);
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--warn);
+  color: #fff;
+  font-size: 0.85rem;
+  box-shadow: var(--shadow);
+  transform: translateX(-50%);
+  text-align: center;
+}
+
+.sync-status {
+  padding: 0 16px 6px;
+  font-size: 0.8rem;
+  color: var(--text-2);
+}
+
+.sidebar-collapsed .sync-status {
+  display: none;
+}
+
+.build-quota {
+  font-size: 0.8rem;
+  color: var(--text-2);
+}
+
+/* visitors: no server-changing actions (they're refused by the server anyway) */
+body.role-guest #delete-button,
+body.role-guest #info-button,
+body.role-guest #retranslate-all-button,
+body.role-guest #video-button,
+body.role-guest .line-actions {
+  display: none;
+}
+
+/* offline: anything that needs the server is unavailable */
+body.offline .create-form,
+body.offline #delete-button,
+body.offline #info-button,
+body.offline #retranslate-all-button,
+body.offline #video-button {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+body.offline .line-actions {
+  display: none;
+}
+
+.pin-dialog {
+  max-width: 320px;
+  padding: 20px 22px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.pin-dialog::backdrop {
+  background: rgb(0 0 0 / 0.5);
+}
+
+.pin-dialog h2 {
+  margin: 0 0 6px;
+  font-size: 1.1rem;
+}
+
+.pin-dialog form {
+  display: grid;
+  gap: 10px;
+}
+
+.pin-dialog input {
+  font-size: 1.4rem;
+  letter-spacing: 0.3em;
+  text-align: center;
+}
+
+.pin-error {
+  margin: 0;
+  color: var(--error);
+  font-size: 0.85rem;
+}
+
+.blocked {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--bg);
+  color: var(--text);
+  text-align: center;
+}
+
+/* ---- floating play / previous / next (touch screens only) ---- */
+
+.float-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.float-stack > * {
+  pointer-events: auto;
+}
+
+.touch-controls {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  html {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation; /* no double-tap zoom delay */
+  }
+
+  .touch-controls {
+    display: flex;
+    gap: 6px;
+    padding: 6px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+
+  .touch-controls button {
+    width: 52px;
+    height: 52px;
+    padding: 0;
+    border-radius: 50%;
+    font-size: 1.3rem;
+    line-height: 1;
+  }
+
+  .touch-controls #touch-prev,
+  .touch-controls #touch-next {
+    border-color: var(--border);
+    background: transparent;
+    color: var(--text);
+  }
+
+  /* bigger targets */
+  .line {
+    padding: 10px 44px 10px 12px;
+  }
+
+  .line .orig,
+  .line .tr {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none; /* long press edits instead of opening the callout */
+  }
+
+  .line .tr.editing {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
+  .line-actions {
+    opacity: 0.55; /* no hover on touch: always visible */
+  }
+
+  button.icon {
+    min-width: 36px;
+    min-height: 36px;
+  }
+
+  button.small {
+    min-height: 36px;
+    padding: 6px 12px;
+  }
+
+  .tree-artist-name,
+  .tree-song {
+    padding: 10px;
+  }
+
+  .sidebar-toggle {
+    width: 40px;
+    height: 36px;
+  }
+
+  input,
+  button {
+    font-size: 16px; /* iOS zooms into inputs smaller than 16px */
+  }
+
+  .lyrics {
+    padding-bottom: 60vh;
+  }
 }

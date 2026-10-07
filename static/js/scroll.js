@@ -32,12 +32,14 @@ export class AutoScroller {
    * @param {object} opts
    * @param {HTMLElement} opts.main the lyrics scroll container (falls back to window if it can't scroll)
    * @param {() => HTMLElement|null} opts.coverEl element covering the top of the region, if any
+   * @param {() => HTMLElement|null} [opts.coverBottomEl] element covering the bottom (floating buttons)
    * @param {() => HTMLElement|null} opts.currentEl the highlighted line
    * @param {(show: boolean) => void} opts.onOffscreen show/hide the "back to current" button
    */
-  constructor({ main, coverEl, currentEl, onOffscreen }) {
+  constructor({ main, coverEl, coverBottomEl = () => null, currentEl, onOffscreen }) {
     this.main = main;
     this.coverEl = coverEl;
+    this.coverBottomEl = coverBottomEl;
     this.currentEl = currentEl;
     this.onOffscreen = onOffscreen;
     this.enabled = true;
@@ -78,7 +80,10 @@ export class AutoScroller {
     let top = Math.max(box.top, 0);
     const cover = this.coverEl();
     if (cover && cover.offsetParent !== null) top = Math.max(top, cover.getBoundingClientRect().bottom);
-    return { top, bottom: Math.min(box.bottom, window.innerHeight) };
+    let bottom = Math.min(box.bottom, window.innerHeight);
+    const coverBottom = this.coverBottomEl();
+    if (coverBottom) bottom = Math.min(bottom, coverBottom.getBoundingClientRect().top - 8);
+    return { top, bottom };
   }
 
   /** Called when the highlighted line changes. */

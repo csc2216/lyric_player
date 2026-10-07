@@ -91,6 +91,9 @@ def test_list_tree_sorted(lib):
     lib.save_song(song("Alpha", "song b"))
     lib.save_song(song("Alpha", "Song A", synced=True))
     tree = lib.list_tree()
+    for artist in tree:
+        for s in artist["songs"]:
+            assert s.pop("updated_at").endswith("Z")
     assert tree == [
         {
             "artist": "Alpha",

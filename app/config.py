@@ -17,5 +17,15 @@ class Settings(BaseSettings):
     port: int = 8765
     video_preference: Literal["sync", "mv"] = "sync"
 
+    # ---- access for other devices (via `tailscale serve`) ----
+    # Tailscale login of the owner (full access from any of their devices).
+    owner_login: str = ""
+    # PIN for visitors whose requests carry no Tailscale identity. Empty = no visitors without identity.
+    guest_pin: str = ""
+    # New songs each visitor may build per day (uses the owner's translation quota).
+    guest_daily_builds: int = 10
+    # Server-side state that isn't the song library (visitor sessions, build counters).
+    data_dir: Path = Path("./data")
+
 
 settings = Settings()

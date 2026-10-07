@@ -6,7 +6,10 @@ import { el } from "./ui.js";
 const TICK_MS = 50; // ~20 updates per second is plenty for line-level sync
 // A click on the translation waits this long to see whether it becomes a double-click (edit).
 const DBLCLICK_WAIT_MS = 250;
-const MISSING_TR = "（沒有翻譯，雙擊編輯）";
+const MISSING_TR = "（沒有翻譯，雙擊或長按編輯）";
+// Touch: holding a translation this long starts editing it.
+const LONG_PRESS_MS = 550;
+const LONG_PRESS_MOVE_PX = 10;
 
 export class LyricsView {
   /**
@@ -31,8 +34,20 @@ export class LyricsView {
     // Calibration: clicks pick the target line instead of seeking; editing is off.
     this.selectMode = false;
     this.target = -1;
+    this.lastPointerType = "mouse";
+    this.longPress = null; // {timer, x, y}
+    this.suppressClick = false;
     container.addEventListener("click", (e) => this.#onClick(e));
     container.addEventListener("dblclick", (e) => this.#onDblClick(e));
+    container.addEventListener("pointerdown", (e) => this.#onPointerDown(e));
+    container.addEventListener("pointermove", (e) => this.#onPointerMove(e));
+    for (const type of ["pointerup", "pointercancel", "pointerleave"]) {
+      container.addEventListener(type, () => this.#cancelLongPress());
+    }
+    // no context menu / text-selection callout after a long press on touch screens
+    container.addEventListener("contextmenu", (e) => {
+      if (this.lastPointerType !== "mouse" && e.target.closest(".tr")) e.preventDefault();
+    });
   }
 
   get offsetMs() {
@@ -149,7 +164,41 @@ export class LyricsView {
     this.lineEls[index]?.classList.toggle("busy", busy);
   }
 
+  #onPointerDown(e) {
+    this.lastPointerType = e.pointerType || "mouse";
+    if (e.pointerType === "mouse" || this.selectMode) return;
+    const trEl = e.target.closest(".tr");
+    if (!trEl || trEl.isContentEditable || !this.song) return;
+    this.#cancelLongPress();
+    this.longPress = {
+      x: e.clientX,
+      y: e.clientY,
+      timer: setTimeout(() => {
+        this.longPress = null;
+        this.suppressClick = true; // the click that follows the release must not seek
+        navigator.vibrate?.(15);
+        this.#startEdit(trEl, Number(trEl.closest(".line").dataset.index));
+      }, LONG_PRESS_MS),
+    };
+  }
+
+  #onPointerMove(e) {
+    if (!this.longPress) return;
+    if (Math.hypot(e.clientX - this.longPress.x, e.clientY - this.longPress.y) > LONG_PRESS_MOVE_PX) {
+      this.#cancelLongPress(); // it's a scroll, not a long press
+    }
+  }
+
+  #cancelLongPress() {
+    if (this.longPress) clearTimeout(this.longPress.timer);
+    this.longPress = null;
+  }
+
   #onClick(e) {
+    if (this.suppressClick) {
+      this.suppressClick = false;
+      return;
+    }
     if (e.target.closest("[contenteditable]")) return;
     const lineEl = e.target.closest(".line");
     if (!lineEl || !this.song) return;
@@ -164,8 +213,9 @@ export class LyricsView {
       return;
     }
     clearTimeout(this.clickTimer);
-    if (e.target.closest(".tr")) {
+    if (e.target.closest(".tr") && this.lastPointerType === "mouse") {
       // Might be the first half of a double-click (edit): wait before seeking.
+      // (Touch edits with a long press instead, so taps seek right away.)
       if (e.detail === 1) this.clickTimer = setTimeout(() => this.jumpTo(index), DBLCLICK_WAIT_MS);
       return;
     }

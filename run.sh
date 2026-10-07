@@ -3,4 +3,5 @@
 # Usage: ./run.sh [extra uvicorn args, e.g. --host 0.0.0.0]
 cd "$(dirname "$0")" || exit 1
 export PATH="$HOME/.local/bin:$PATH"
-exec uv run uvicorn app.main:app --port "${PORT:-8765}" --reload "$@"
+# --no-proxy-headers: see app/auth.py (identity headers from tailscale serve)
+exec uv run uvicorn app.main:app --port "${PORT:-8765}" --reload --no-proxy-headers "$@"

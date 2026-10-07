@@ -48,6 +48,9 @@
 | `TRANSLATE_MODEL` | `claude-sonnet-5-5` | 翻譯用的模型 |
 | `LIBRARY_DIR` | `./library` | 歌曲庫資料夾（JSON 檔，可自行備份） |
 | `VIDEO_PREFERENCE` | `sync` | `sync`：選時長最接近的影片（時間軸最準）；`mv`：偏好 MV |
+| `OWNER_LOGIN` | 空 | 你的 Tailscale 登入帳號（email）；用這個帳號的裝置有完整權限 |
+| `GUEST_PIN` | 空 | 訪客 PIN：沒有 Tailscale 身分的裝置要先輸入；留空 = 不開放這種訪客 |
+| `GUEST_DAILY_BUILDS` | `10` | 每位訪客每天最多建立幾首新歌（用你的翻譯額度） |
 
 ---
 
@@ -72,6 +75,8 @@
 ```bash
 ./run.sh          # 有 --reload，改程式自動重載；瀏覽器開 http://localhost:8765
 ```
+
+> 自己下指令啟動時要加 `--no-proxy-headers`（`run.sh` 和一鍵啟動都已經加了），否則透過 Tailscale 連進來的裝置會認不出身分、一律要輸入 PIN。
 
 ---
 
@@ -113,9 +118,132 @@
 | 沒有同步歌詞的歌 | 「打點同步」：跟著歌在每行開始唱時按 **Enter**（或 **S**），按錯按 **Backspace**，打完自動存 |
 | 刪除 | 「刪除」（會再確認一次） |
 
+### 在 iPad / 手機上
+
+- 透過 Tailscale 連線（設定見下方「行動裝置與訪客」），可以「加入主畫面」當成 App 全螢幕使用。
+- 觸控裝置的歌詞區右下角有 **⏮ ⏯ ⏭** 浮動按鈕（上一行、播放 / 暫停、下一行）。
+- **點一下**任一行從那行開始播；**長按**翻譯可以修改。
+- iPad 直向、手機：影片縮小固定在上方，歌詞在下方；iPad 橫向：跟電腦一樣三欄。
+
+### 一個共用的歌曲庫、離線也能看
+
+- 所有裝置看到的是伺服器上**同一份歌曲庫**。連得到伺服器時，會自動把整個歌曲庫複製到裝置上（左側顯示「已同步 N 首」），伺服器新增、修改、刪除的歌也會跟著更新。
+- 伺服器連不到（電腦關機、沒開 Tailscale）時，App 照樣能開，上方顯示「**離線模式**」：可以播放、點行、調 offset、改翻譯；**建立、重翻、換影片、刪除**要等連回伺服器。（影片本身來自 YouTube，所以裝置還是要能上網。）
+- 你（主人）離線時做的修改，連回來後會自動同步回伺服器（比伺服器上的版本新才會覆蓋）。
+- 訪客的 offset 和翻譯修改**只存在他自己的裝置**，不會改到伺服器；伺服器之後更新那首歌時，訪客自己的修改會保留。
+
 ### 設定（⚙）
 
 自動捲動、排版（原文翻譯上下兩行 / 同一行）、主題（跟隨系統 / 淺色 / 深色）、點行時提早幾秒開始播。設定存在瀏覽器裡。
+
+---
+
+## 行動裝置與訪客（Tailscale）
+
+[Tailscale](https://tailscale.com/) 是免費的私人網路：你的電腦、iPad、手機（以及你分享給的室友）可以在任何地方互相連線，外人連不到。以下步驟在**你的電腦**做一次就好。
+
+### 1. 在 WSL 安裝並登入 Tailscale
+
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up                        # 會印出一個網址，用瀏覽器打開並登入
+sudo tailscale set --operator=$USER      # 之後不用 sudo 就能設定 serve
+```
+
+- 若出現「failed to connect to local tailscaled」：WSL 需要開啟 systemd。在 WSL 執行 `sudo nano /etc/wsl.conf`，加入兩行 `[boot]`、`systemd=true`，存檔後在 Windows 的命令提示字元執行 `wsl --shutdown`，再重開 WSL。
+- 在 [Tailscale 管理頁](https://login.tailscale.com/admin/dns) 確認 **MagicDNS** 和 **HTTPS Certificates** 都已開啟（iPad 加入主畫面、離線功能需要 HTTPS）。
+
+### 2. 用 HTTPS 把播放器提供給 tailnet
+
+一鍵啟動（`start-lyric-player.bat`）每次都會自動執行，並在視窗印出網址：
+
+```
+其他裝置（Tailscale）：https://<你的電腦名稱>.<tailnet名稱>.ts.net
+```
+
+想手動執行或檢查：
+
+```bash
+tailscale serve --bg 8765     # 把 https://<電腦>.ts.net 轉到 http://localhost:8765（設定會保留）
+tailscale serve status        # 查看網址
+tailscale serve reset         # 不想再提供時
+```
+
+沒有安裝 Tailscale 時，一鍵啟動會略過這步並提示，電腦本機照常可用。
+
+### 3. 設定權限（`.env`）
+
+```
+OWNER_LOGIN=你登入 Tailscale 用的 email
+GUEST_PIN=4 到 6 位數字（給室友的密碼）
+GUEST_DAILY_BUILDS=10
+```
+
+改完重新啟動伺服器。
+
+| 誰 | 怎麼認出來 | 可以做什麼 |
+|---|---|---|
+| 你（這台電腦 / localhost） | 直接連本機 | 全部 |
+| 你（自己的 iPad、手機） | Tailscale 帳號 = `OWNER_LOGIN` | 全部 |
+| 訪客（室友） | 其他 Tailscale 帳號，或輸入 `GUEST_PIN` 後記住 | 瀏覽、播放、建立新歌（每天 `GUEST_DAILY_BUILDS` 首）。**不能**刪除、改名、重翻、換影片；調 offset、改翻譯只存在他自己的裝置 |
+
+### 4. 分享給室友（Share node）
+
+1. 打開 [Tailscale 管理頁 → Machines](https://login.tailscale.com/admin/machines)，找到你的 WSL 那台機器。
+2. 按右邊的「⋯」→「**Share…**」→ 複製邀請連結（或輸入室友的 email）。
+3. 把**邀請連結**、**播放器網址**（`https://….ts.net`）和 **PIN** 傳給室友，請他照下面「給室友／iPad 使用」做。
+
+### 5. 確認室友的裝置有沒有帶身分（建議做一次）
+
+分享進來的裝置，Tailscale 不一定會把對方的帳號告訴伺服器。請室友連上後在瀏覽器打開：
+
+```
+https://<你的電腦>.ts.net/api/me
+```
+
+- 看到 `"role":"guest","via":"tailscale"` 和他的帳號 → 有身分，不需要 PIN。
+- 看到 `"needs_pin":true`（或 `"via":"pin"`）→ 沒有身分，播放器會請他輸入 `GUEST_PIN`，輸入一次後會記住。兩種情況都能正常使用。
+- 有 `"note"` 欄位提到 `--no-proxy-headers` → 伺服器啟動方式不對，請用一鍵啟動或 `./run.sh`。
+
+---
+
+## 給室友／iPad 使用
+
+這段是給**使用者**看的，照著做就好，不需要懂電腦。
+
+**你需要主人給你三樣東西：** ① 一個 Tailscale 邀請連結 ② 播放器網址（長得像 `https://xxxx.ts.net`）③ PIN 碼（可能不需要）。
+
+### 第一次設定（約 5 分鐘）
+
+1. **安裝 Tailscale App**
+   - iPad / iPhone：在 App Store 搜尋「Tailscale」安裝。
+   - Android：在 Google Play 搜尋「Tailscale」安裝。
+2. 打開 Tailscale，用 Google、Apple 或 Microsoft 帳號登入（免費）。第一次會問要不要加入 VPN 設定，按「允許」。
+3. **點主人給你的邀請連結**，按「Accept（接受）」。
+4. 確認 Tailscale App 裡的開關是**開啟**（Connected）。
+5. 用瀏覽器打開主人給你的**播放器網址**：
+   - iPad / iPhone 用 **Safari**；Android 用 **Chrome**。
+6. 如果畫面要求輸入 PIN，輸入主人給你的 PIN，按「進入」。之後這台裝置會記住，不用再輸入。
+
+### 把它變成主畫面上的 App
+
+- **iPad / iPhone（Safari）**：按網址列旁的「分享」按鈕（方框加向上箭頭）→ 往下找「**加入主畫面**」→ 按「新增」。之後從主畫面的「歌詞播放器」圖示打開，會是全螢幕。
+- **Android（Chrome）**：按右上角「⋮」→「**安裝應用程式**」（有些手機寫「加到主畫面」）→ 按「安裝」。之後從桌面或應用程式列表打開。
+
+### 怎麼用
+
+- **選歌**：按左上角的 **»** 打開歌曲列表，點一首歌。
+- **播放**：點任何一行歌詞，就從那一行開始唱。右下角的 **⏮ ⏯ ⏭** 是上一行、播放/暫停、下一行。
+- **加新歌**：在「歌名，或 歌手 - 歌名」輸入（例如 `IU - 밤편지`），按「建立」，等 10 秒左右。每天能建立的數量有限，畫面上會顯示還剩幾首。
+- **歌詞太早或太晚亮**：按「校準時間」照指示做，或用「−」「+」微調。這只會改你自己的裝置，不會影響別人。
+- **翻譯想改**：在翻譯上**長按**，改完按鍵盤的「換行 / 完成」。同樣只改你自己的裝置。
+
+### 遇到問題
+
+- **打不開網頁**：確認 Tailscale App 是開啟的；或主人的電腦可能關機了。
+- **畫面上方顯示「離線模式」**：主人的電腦暫時連不到。之前同步過的歌照樣可以聽（需要能上網看 YouTube），只是不能加新歌。連回來後會自動恢復。
+- **影片不能播**：會自動換別的影片；全部都不行的話請告訴主人。
+- **按了沒反應**：把 App 完全關掉再打開一次。
 
 ---
 
@@ -196,6 +324,7 @@ uv lock --upgrade-package yt-dlp && uv sync
 - **某幾行翻譯是空的**：建立時會提示「有 N 行翻譯失敗」。滑鼠移到那行按 ↻ 重翻，或雙擊自己補。
 - **影片不能播**：被禁止嵌入（錯誤 101/150）或已刪除（100）時會自動換下一個候選；候選都不行會打開「換影片」，貼上別的 YouTube 網址即可。
 - **8765 port 被別的程式占用**：一鍵啟動視窗會顯示「伺服器啟動失敗」（上面有 `address already in use`）。關掉占用的程式，或在 Windows 設定環境變數 `LYRIC_PLAYER_PORT` 換 port。（如果占用的是本程式自己，.bat 會直接開瀏覽器。）
+- **iPad 加入主畫面後還是有網址列 / 沒有離線功能**：一定要用 `https://….ts.net` 網址加入（`http://` 不行），並且用 Safari 加入。
 - **Windows 瀏覽器連不到 localhost:8765**：WSL 預設會轉發 localhost；不行的話在 WSL 執行 `hostname -I`，改用印出的 IP（例如 `http://172.x.x.x:8765`，一鍵啟動已用 `--host 0.0.0.0`）。
 - **備份 / 搬家**：整個 `library/` 資料夾就是全部的歌（每首一個 JSON），複製走即可。
 

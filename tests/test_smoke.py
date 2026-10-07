@@ -4,7 +4,7 @@ from app.api.routes import get_library
 from app.main import app
 from app.services.library import Library
 
-client = TestClient(app)
+client = TestClient(app, base_url="http://localhost:8765")  # direct local = owner
 
 
 def test_library_empty(tmp_path):

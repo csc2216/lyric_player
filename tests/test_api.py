@@ -92,7 +92,7 @@ def env(tmp_path, monkeypatch):
         pass
 
     e = Env()
-    e.lib, e.client, e.searches, e.yt, e.backend = lib, TestClient(app), searches, results, backend
+    e.lib, e.client, e.searches, e.yt, e.backend = lib, TestClient(app, base_url="http://localhost:8765"), searches, results, backend
     e.set_backend = lambda b: monkeypatch.setattr(translator, "make_backend", lambda name=None: b)
     yield e
     app.dependency_overrides.clear()
@@ -444,7 +444,7 @@ def test_unexpected_error_returns_readable_500(env, monkeypatch):
         raise RuntimeError("disk on fire")
 
     monkeypatch.setattr(pipeline, "resolve", boom)
-    client = TestClient(app, raise_server_exceptions=False)
+    client = TestClient(app, base_url="http://localhost", raise_server_exceptions=False)
     res = client.post("/api/resolve", json={"query": "x"})
     assert res.status_code == 500
     assert "RuntimeError: disk on fire" in res.json()["detail"]
