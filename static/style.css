@@ -1,0 +1,12 @@
+body {
+  margin: 0;
+  font-family: system-ui, "Noto Sans TC", sans-serif;
+  background: #fafafa;
+  color: #222;
+}
+
+main {
+  max-width: 720px;
+  margin: 4rem auto;
+  padding: 0 16px;
+}

@@ -1,0 +1,248 @@
+# Lyric Player — 開發規格（給 Claude Code）
+
+本地使用的歌詞翻譯播放網站。輸入歌名 → 自動找 YouTube 影片 + LRCLIB 同步歌詞 → LLM 逐行翻成繁體中文 → 存檔並依歌手分類。播放時每一行歌詞是可點擊的按鈕，點了從該行開始播，當前行 highlight，可選自動捲動，空白鍵播放/暫停。
+
+**只在本機跑（localhost），單一使用者，不需要登入、部署、版權處理。**
+
+## 工作方式（重要）
+
+- 依「里程碑」順序實作，**每完成一個里程碑就停下來**，列出：改了哪些檔案、怎麼手動驗證、已知問題。等我確認再繼續。
+- 不確定的設計決定：照本文件做；本文件沒寫到的，選最簡單的做法並在回報中說明。
+- 測試 fixture 一律用自己編的假歌詞（例如 `"line one"`, `"第二行"`），不要放真實歌詞。
+- 程式碼識別字用英文，UI 文字用繁體中文。
+
+## 技術棧
+
+| 部分 | 選擇 | 理由 |
+|---|---|---|
+| Python 環境 | `uv` | 快、乾淨 |
+| 後端 | FastAPI + uvicorn | 同時 serve API 和靜態前端 |
+| YouTube 搜尋 | `yt-dlp`（`ytsearchN:` + `extract_flat`） | 不需要 API key、沒有配額 |
+| 歌詞 | LRCLIB API（`https://lrclib.net/api`） | 免費、有時間戳 |
+| 翻譯 | `anthropic` Python SDK | |
+| HTTP client | `httpx` | |
+| 儲存 | 磁碟上的 JSON 檔，依歌手分資料夾 | 人類可讀、可用 git 版控 |
+| 前端 | 原生 HTML + CSS + ES modules，**無 build step** | 簡單、好改 |
+| 播放器 | YouTube IFrame Player API | |
+| 測試 | pytest | |
+
+設定放 `.env`（用 `python-dotenv` 或 pydantic-settings 讀）：
+
+```
+ANTHROPIC_API_KEY=...
+TRANSLATE_MODEL=claude-sonnet-5-5
+LIBRARY_DIR=./library
+PORT=8765
+```
+
+`.env` 和 `library/` 以外的東西進 git；附 `.env.example`。
+
+## 專案結構
+
+```
+lyric-player/
+├── CLAUDE.md
+├── pyproject.toml
+├── .env.example
+├── app/
+│   ├── main.py            # FastAPI app，掛 /api 和 static
+│   ├── config.py
+│   ├── models.py          # Pydantic schemas
+│   ├── services/
+│   │   ├── lrclib.py      # LRCLIB client
+│   │   ├── lrc_parser.py  # LRC 解析 + 段落對齊
+│   │   ├── youtube.py     # yt-dlp 搜尋 + 打分
+│   │   ├── translator.py  # LLM 翻譯
+│   │   └── library.py     # 讀寫 JSON、建 tree
+│   └── api/
+│       └── routes.py
+├── static/
+│   ├── index.html
+│   ├── style.css
+│   └── js/
+│       ├── main.js
+│       ├── api.js
+│       ├── library.js     # 側邊欄 tree
+│       ├── player.js      # YT IFrame 包裝
+│       ├── lyrics.js      # 歌詞渲染、highlight、捲動
+│       └── keyboard.js
+├── tests/
+│   ├── fixtures/          # 假的 LRC / LRCLIB 回應
+│   ├── test_lrc_parser.py
+│   ├── test_youtube_scoring.py
+│   └── test_library.py
+└── library/               # 使用者資料（gitignore）
+    └── <artist_slug>/
+        └── <title_slug>.json
+```
+
+啟動：`uv run uvicorn app.main:app --port 8765 --reload`，瀏覽器開 `http://localhost:8765`。
+（IFrame API 必須在 http origin 下跑，不能用 file://。）
+
+## 資料格式
+
+`library/<artist_slug>/<title_slug>.json`：
+
+```json
+{
+  "schema_version": 1,
+  "artist": "原始歌手名（顯示用）",
+  "title": "原始歌名（顯示用）",
+  "album": "專輯名或 null",
+  "created_at": "ISO8601",
+  "updated_at": "ISO8601",
+  "youtube": {
+    "video_id": "xxxxxxxxxxx",
+    "title": "影片標題",
+    "channel": "頻道名",
+    "duration": 215.0,
+    "alternatives": [ { "video_id": "...", "title": "...", "channel": "...", "duration": 230.0 } ]
+  },
+  "lrclib": { "id": 123456, "duration": 214.0 },
+  "synced": true,
+  "offset_ms": 0,
+  "lines": [
+    { "t": 12.34, "text": "原文", "tr": "翻譯", "break_before": false }
+  ],
+  "translator": { "model": "claude-sonnet-5-5", "prompt_version": 1 }
+}
+```
+
+- `t`：該行開始時間（秒，float），沒有同步歌詞時為 `null`。
+- `break_before`：這行之前要空一行（段落分隔），用來做出分段排版。
+- 只存有文字的行；空行用 `break_before` 表示。
+- slug：保留韓文/中文/日文字元，去掉檔名不合法字元 `/\:*?"<>|`，空白轉 `-`，全部小寫英文。原名存在 JSON 裡，slug 只用於檔名。
+- 寫檔用「先寫暫存檔再 rename」，避免寫到一半壞檔。
+
+## 後端流程
+
+### 1. LRCLIB（`services/lrclib.py`）
+
+- `GET /api/search?q=<query>` 或 `?track_name=&artist_name=`，回傳陣列，欄位：`id, trackName, artistName, albumName, duration, instrumental, plainLyrics, syncedLyrics`。
+- 加 `User-Agent: lyric-player/0.1 (local personal use)`（LRCLIB 要求）。
+- 使用者輸入支援 `歌手 - 歌名` 或自由文字。有 ` - ` 就拆成 artist/track 查，否則用 `q`。
+- 候選排序：有 `syncedLyrics` 優先 → 標題/歌手字串相似度 → 排除 `instrumental: true`。
+
+### 2. LRC 解析（`services/lrc_parser.py`）— 要有完整單元測試
+
+- 支援 `[mm:ss]`、`[mm:ss.xx]`、`[mm:ss.xxx]`。
+- 一行多個時間戳 `[00:12.00][01:30.00]text` → 展開成多行。
+- metadata tag（`[ar:]`, `[ti:]`, `[al:]`, `[by:]`, `[length:]`）忽略；`[offset:+/-ms]` 要套用到所有時間。
+- 結果依時間排序。
+- 只有時間戳沒有文字的行 = 間奏標記，不輸出成行，但讓下一行 `break_before = true`。
+- **段落對齊**：LRCLIB 的 `syncedLyrics` 通常沒有空行，但 `plainLyrics` 有。若兩者都有，把 plain 的非空行和 synced 的行用正規化文字（去空白、標點、小寫）依序對齊，plain 裡出現空行的位置 → 對應 synced 行標 `break_before`。對齊失敗（行數差太多）時退回規則：與前一行間隔 > 4 秒就斷段。
+- 只有 `plainLyrics`：`t = null`，`synced = false`，段落照 plain 的空行。
+
+### 3. YouTube（`services/youtube.py`）
+
+- `yt_dlp.YoutubeDL({"quiet": True, "extract_flat": True, "skip_download": True})`，`extract_info(f"ytsearch8:{artist} {title}", download=False)`。
+- 打分（寫成純函式方便測試）：
+  - 與 LRCLIB duration 差距：±3 秒內大加分，差越多扣越多（**時間軸能不能對上主要看這個**）。
+  - 標題含歌名、頻道含歌手或為 `- Topic` 頻道 / 官方頻道：加分。
+  - 標題含 `cover`、`dance practice`、`live`、`lyrics`、`sped up`、`reaction`：扣分。
+- 設定項 `video_preference`: `"sync"`（預設，選時長最接近的，常常是 audio / Topic 版）或 `"mv"`（偏好 MV，時間可能需要 offset 調整）。
+- 前 5 名存到 `alternatives`，UI 可以換影片。
+
+### 4. 翻譯（`services/translator.py`）
+
+- 去重：重複的行（副歌）只翻一次，保證一致又省錢。
+- 送給模型：完整歌詞（給上下文）+ 帶 id 的去重行清單。
+- 要求回傳純 JSON：`{"translations": [{"id": 0, "tr": "..."}]}`。
+- System prompt 要點：
+  - 翻成**台灣慣用的繁體中文**，自然口語、像歌詞，不要逐字直譯。
+  - 英文句子也要翻；純擬聲/無意義的 ad-lib（ooh, la la, yeah）保留原樣或極簡。
+  - 每個 id 都必須有對應翻譯，不可合併或拆分行。
+  - 只輸出 JSON，不要 markdown fence。
+- 解析時剝掉可能出現的 ``` fence；驗證每個 id 都在。缺漏 → 只針對缺的 id 重試一次；仍失敗則該行 `tr` 留空並在回應中回報。
+- `prompt_version` 常數，改 prompt 時 +1。
+
+### 5. Library（`services/library.py`）
+
+- `list_tree()` → `[{artist, artist_slug, songs: [{title, title_slug, synced}]}]`，歌手和歌曲都依名稱排序。
+- `get_song`, `save_song`, `delete_song`, `move_song`（改歌手名時搬資料夾，空資料夾刪掉）。
+- 存檔前檢查同名歌曲已存在 → 回傳既有的，不重做（除非 `force=true`）。
+
+## API
+
+| Method | Path | 說明 |
+|---|---|---|
+| GET | `/api/library` | tree |
+| GET | `/api/songs/{artist_slug}/{title_slug}` | 單首完整資料 |
+| POST | `/api/resolve` | body `{query}` → 回傳 LRCLIB 候選 + 每個候選的最佳 YT 影片 + `auto_ok`（布林） |
+| POST | `/api/build` | body `{lrclib_id, video_id, force?}` → 翻譯、存檔、回傳 song |
+| PATCH | `/api/songs/{a}/{t}` | 改 `offset_ms`、`youtube.video_id`、單行 `tr`、`artist`、`title`、`lines[*].t` |
+| POST | `/api/songs/{a}/{t}/retranslate` | body `{line_indices?}`，不給就全部重翻 |
+| DELETE | `/api/songs/{a}/{t}` | 刪除 |
+
+`auto_ok = true` 的條件：第一名 LRCLIB 候選有 synced 歌詞、且明顯領先第二名、且最佳影片時長差 ≤ 3 秒。
+前端在 `auto_ok` 時直接呼叫 `/build`（全自動）；否則顯示候選讓我選。
+
+## 前端
+
+### 版面
+
+- 左側：歌曲庫 tree（歌手可展開/收合，上方有過濾搜尋框），點歌曲載入。
+- 上方：輸入框（placeholder：`歌名，或 歌手 - 歌名`）+「建立」按鈕 + 進度狀態（搜尋中 → 翻譯中 → 完成/錯誤）。
+- 主區：影片（sticky 在上方，可縮小）+ 歌詞列表。
+- 右上角設定：自動捲動開關、排版模式（原文翻譯同一行 / 上下兩行）、深色模式。設定存 `localStorage`。
+
+### 歌詞行
+
+- 每一行（原文 + 翻譯）整塊是一個可點擊元素：用 `<div role="button" tabindex="-1">`，**不要用 `<button>`**（避免 focus 後空白鍵觸發 click）。
+- 點擊：`player.seekTo(max(0, t + offset_ms/1000 - PREROLL), true)` 然後 `playVideo()`。`PREROLL = 0.15` 秒（常數，設定可調）。
+- `t == null` 的行不可點、樣式變淡。
+- 翻譯文字用次要顏色；`break_before` 的行上方加間距。
+- 翻譯可雙擊編輯（contenteditable），Enter 儲存（PATCH），Esc 取消。
+
+### 同步 / highlight
+
+- 播放中用 `requestAnimationFrame` 迴圈（節流到約 50ms）讀 `getCurrentTime()`；暫停時停止迴圈。
+- 找目前行：最後一個 `t + offset ≤ now` 的行（二分搜尋）。只在 index 改變時更新 DOM class。
+- 自動捲動（可關）：目前行不在視窗中間 40% 區域時 `scrollIntoView({block: "center", behavior: "smooth"})`。使用者手動捲動（wheel / touchmove / 拖捲軸）後暫停自動捲動 3 秒。
+
+### 鍵盤
+
+| 鍵 | 動作 |
+|---|---|
+| Space | 播放 / 暫停 |
+| ← / → | 跳到上一行 / 下一行開頭 |
+| A | 切換自動捲動 |
+| [ / ] | offset −/+ 100ms（顯示目前值，停止按 1 秒後 PATCH 存檔） |
+
+- `keydown` 監聽在 `document`；焦點在 input / textarea / contenteditable 時不處理。
+- 處理到的鍵要 `preventDefault()`（避免空白鍵捲動頁面）。
+- 已知限制：焦點在 YouTube iframe 內時事件不會傳到父頁面（YouTube 自己也會處理空白鍵，所以行為一致）。播放器載入時設 `playerVars: { disablekb: 0, rel: 0, modestbranding: 1 }`。
+
+### 播放器錯誤
+
+- `onError` 收到 101 / 150（禁止嵌入）或 100（影片不存在）→ 自動換 `alternatives` 下一個，並 PATCH 存回；全部失敗則顯示錯誤和「換影片」選單。
+
+## 沒有同步歌詞時：手動打點模式
+
+- `synced = false` 的歌顯示「打點同步」按鈕。
+- 進入模式：從頭播放，第一行高亮為「下一個要打點的行」，每按一次 `Enter`（或 `S`）把目前時間記為該行的 `t` 並前進一行；`Backspace` 退回上一行重打。
+- 完成後 PATCH 存 `lines[*].t`、`synced = true`。
+
+## 里程碑
+
+**M0 骨架**：uv 專案、依賴、`.env.example`、FastAPI serve 一個 hello 頁面、`/api/library` 回空陣列。
+驗收：`uv run uvicorn ...` 起得來，瀏覽器看得到頁面。
+
+**M1 後端服務 + 測試**：`lrc_parser`（含段落對齊）、`youtube` 打分函式、`library` 讀寫與 slug、`lrclib` client、`translator`。
+驗收：`uv run pytest` 全過；另附一個 `scripts/try_pipeline.py "歌手 - 歌名"`，在終端機印出 LRCLIB 候選、選到的影片、前 5 行翻譯結果（不存檔）。
+
+**M2 API**：所有 routes。
+驗收：用 `/docs`（Swagger）手動跑 resolve → build，`library/` 下出現正確的 JSON。
+
+**M3 前端核心**：tree、輸入建立流程（含全自動與候選選擇）、播放器、點行跳播、highlight、空白鍵。
+驗收：建立一首歌 → 點任一行從該行開始播 → highlight 跟著走。
+
+**M4 互動完善**：自動捲動開關、offset 調整、←/→、編輯翻譯、重翻、換影片、刪除、排版模式、深色模式。
+
+**M5 補強**：嵌入失敗自動換片、手動打點模式、錯誤訊息、README。
+
+## 其他注意
+
+- LRCLIB / yt-dlp / Anthropic 呼叫都要有 timeout 和清楚的錯誤訊息回到前端。
+- yt-dlp 偶爾會因 YouTube 改版壞掉：README 註明 `uv lock --upgrade-package yt-dlp`。
+- 不要把 API key 傳到前端。
