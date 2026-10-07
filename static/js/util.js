@@ -38,3 +38,21 @@ export function formatOffset(ms) {
   if (!ms) return "0 ms";
   return `${ms > 0 ? "+" : "−"}${Math.abs(ms)} ms`;
 }
+
+/**
+ * Offset suggested by the video/lyrics duration difference: the difference when
+ * the video is >= 1 s longer (longer intro), else 0. Same rule as the backend's
+ * default_offset_ms (app/services/pipeline.py).
+ */
+export function estimateOffsetMs(videoDuration, lyricsDuration) {
+  if (typeof videoDuration !== "number" || typeof lyricsDuration !== "number") return 0;
+  const diff = videoDuration - lyricsDuration;
+  return diff >= 1 ? Math.round(diff * 1000) : 0;
+}
+
+/** "+3.5 秒", "0 秒", "−0.2 秒" */
+export function formatOffsetSeconds(ms) {
+  if (!ms) return "0 秒";
+  const s = (Math.abs(ms) / 1000).toFixed(1).replace(/\.0$/, "");
+  return `${ms > 0 ? "+" : "−"}${s} 秒`;
+}

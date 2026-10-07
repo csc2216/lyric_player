@@ -43,6 +43,9 @@ MAX_CANDIDATES = 8
 # Extra YouTube searches for candidates that are different songs.
 MAX_EXTRA_SEARCHES = 2
 PREVIEW_LINES = 3
+# A video at least this much longer than the lyrics likely has a longer intro:
+# start with offset = the difference.
+AUTO_OFFSET_MIN_DIFF = 1.0
 VIDEO_CACHE_SIZE = 200
 _VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 
@@ -271,6 +274,18 @@ def _youtube_info(video_id: str, ranked: list[ScoredVideo]) -> YoutubeInfo:
     return YoutubeInfo(**chosen.model_dump(), alternatives=alternatives)
 
 
+def default_offset_ms(video_duration: float | None, lyrics_duration: float | None) -> int:
+    """Initial offset for a new song: the duration difference when the video is
+    longer by >= AUTO_OFFSET_MIN_DIFF seconds, else 0. Pure function.
+
+    (Mirrored by estimateOffsetMs in static/js/util.js.)
+    """
+    if video_duration is None or lyrics_duration is None:
+        return 0
+    diff = video_duration - lyrics_duration
+    return round(diff * 1000) if diff >= AUTO_OFFSET_MIN_DIFF else 0
+
+
 def _validate_video_id(video_id: str) -> None:
     if not _VIDEO_ID_RE.match(video_id):
         raise PipelineError(f"無效的 YouTube video id：{video_id}")
@@ -318,11 +333,15 @@ def build(
             except youtube.YoutubeError:
                 ranked = []
 
+        youtube_info = _youtube_info(video_id, ranked)
+        offset = default_offset_ms(youtube_info.duration, c.duration)
         song = Song(
             artist=c.artist_name,
             title=c.track_name,
             album=c.album_name,
-            youtube=_youtube_info(video_id, ranked),
+            youtube=youtube_info,
+            offset_ms=offset,
+            auto_offset_ms=offset or None,
             lrclib=LrclibRef(id=c.id, duration=c.duration),
             synced=lyrics.synced,
             lines=lyrics.lines,

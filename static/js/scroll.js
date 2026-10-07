@@ -99,6 +99,11 @@ export class AutoScroller {
     return true;
   }
 
+  /** Bring any line element to the middle (calibration target). */
+  centerOn(el) {
+    if (el) this.#scrollTo(el, true);
+  }
+
   scheduleCheck() {
     if (this.pending) return;
     this.pending = true;

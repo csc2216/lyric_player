@@ -417,3 +417,23 @@ def test_patch_rename_into_existing_folder_adopts_name(built):
     data = res.json()
     assert (data["artist_slug"], data["song"]["artist"]) == ("test-artist", "Test Artist")
     assert built.lib.get_song("test-artist", "other").offset_ms == 50
+
+
+def test_build_sets_offset_from_longer_video(env):
+    FakeLrclib.items = [lrclib_item(1, 214.0)]
+    env.yt["Test Artist Paper Moon"] = [yt("longer", 217.5), yt("shorter", 210.0, channel="x")]
+    env.client.post("/api/resolve", json={"query": "Paper Moon"})
+    song = env.client.post("/api/build", json={"lrclib_id": 1, "video_id": "longerxxxxx"}).json()["song"]
+    assert (song["offset_ms"], song["auto_offset_ms"]) == (3500, 3500)
+    # switching video later does not touch the offset
+    env.client.patch("/api/songs/test-artist/paper-moon", json={"video_id": "shorterxxxx"})
+    again = env.lib.get_song("test-artist", "paper-moon")
+    assert (again.offset_ms, again.auto_offset_ms) == (3500, 3500)
+
+
+def test_build_shorter_video_keeps_zero_offset(env):
+    FakeLrclib.items = [lrclib_item(1, 214.0)]
+    env.yt["Test Artist Paper Moon"] = [yt("shorter", 210.0)]
+    env.client.post("/api/resolve", json={"query": "Paper Moon"})
+    song = env.client.post("/api/build", json={"lrclib_id": 1, "video_id": "shorterxxxx"}).json()["song"]
+    assert (song["offset_ms"], song["auto_offset_ms"]) == (0, None)

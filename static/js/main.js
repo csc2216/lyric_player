@@ -1,4 +1,5 @@
 import * as api from "./api.js";
+import { Calibrator } from "./calibrator.js";
 import { setupCreate } from "./create.js";
 import { installKeyboard } from "./keyboard.js";
 import { LibraryTree } from "./library.js";
@@ -9,7 +10,7 @@ import { loadSettings, normalizeSettings, saveSettings } from "./settings.js";
 import { SongBar } from "./songbar.js";
 import { formatTime } from "./sync.js";
 import { status, toast } from "./ui.js";
-import { OFFSET_STEP_MS, clampOffset, formatOffset } from "./util.js";
+import { OFFSET_STEP_MS, clampOffset, formatOffset, formatOffsetSeconds } from "./util.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -40,6 +41,7 @@ const lyrics = new LyricsView($("lyrics"), {
     }
   },
   onRetranslate: retranslateLine,
+  onSelectTarget: (index) => calibrator.select(index),
 });
 
 const loop = new SyncLoop(
@@ -139,14 +141,20 @@ applySettings();
 const OFFSET_SAVE_DELAY_MS = 1000;
 let pendingOffset = null; // {artistSlug, titleSlug, value, timer}
 
+/** Apply an offset locally: display, notice and highlight (not saved). */
+function setOffsetLocal(ms) {
+  state.current.song.offset_ms = ms;
+  showOffset();
+  showNotice();
+  lyrics.update(player.currentTime()); // re-highlight right away, even when paused
+}
+
 function nudgeOffset(delta) {
   const cur = state.current;
-  if (!cur) return;
+  if (!cur || calibrator.active) return;
   const value = clampOffset((cur.song.offset_ms || 0) + delta);
-  cur.song.offset_ms = value;
-  showOffset();
+  setOffsetLocal(value);
   toast(`offset ${formatOffset(value)}`, "info", 1200);
-  lyrics.update(player.currentTime()); // re-highlight right away, even when paused
   if (pendingOffset) clearTimeout(pendingOffset.timer);
   pendingOffset = {
     artistSlug: cur.artist_slug,
@@ -169,9 +177,35 @@ async function flushOffset() {
   }
 }
 
+/** Calibration result: save right away (replaces any pending [ ] change). */
+async function saveOffsetNow(ms) {
+  const cur = state.current;
+  if (pendingOffset) clearTimeout(pendingOffset.timer);
+  pendingOffset = null;
+  try {
+    await api.patchSong(cur.artist_slug, cur.title_slug, { offset_ms: ms });
+    toast(`offset 已設為 ${formatOffset(ms)}`, "ok", 2000);
+  } catch (err) {
+    toast(`offset 儲存失敗：${err.message}`, "error", 4000);
+  }
+}
+
 function showOffset() {
   $("offset-value").textContent = formatOffset(state.current?.song.offset_ms || 0);
 }
+
+const calibrator = new Calibrator({
+  lyrics,
+  player,
+  scroller,
+  song: () => state.current?.song ?? null,
+  setOffset: setOffsetLocal,
+  saveOffset: saveOffsetNow,
+  onEnter: () => {
+    songBar.close();
+    setSettingsOpen(false);
+  },
+});
 
 $("offset-minus").addEventListener("click", (e) => {
   e.currentTarget.blur();
@@ -184,28 +218,59 @@ $("offset-plus").addEventListener("click", (e) => {
 
 // ---- keyboard -------------------------------------------------------------
 
-installKeyboard({
-  togglePlay: () => player.togglePlay(),
-  step: (dir) => {
-    if (state.current?.song.synced) lyrics.step(dir, player.isPlaying());
-  },
-  toggleAutoScroll: () => {
-    updateSettings({ autoScroll: !state.settings.autoScroll });
-    toast(`自動捲動：${state.settings.autoScroll ? "開" : "關"}`);
-    if (state.settings.autoScroll) scroller.follow();
-  },
-  nudgeOffset,
-  centerCurrent: () => {
-    if (!scroller.center()) toast("還沒有正在播放的歌詞行");
-  },
-  escape: () => {
-    setSettingsOpen(false);
-    songBar.close();
-  },
+function onCommand(command) {
+  const calibrating = calibrator.active;
+  const synced = Boolean(state.current?.song.synced);
+  switch (command) {
+    case "togglePlay":
+      player.togglePlay();
+      return true;
+    case "prevLine":
+    case "nextLine":
+      // disabled while calibrating (still swallowed so the page doesn't scroll)
+      if (!calibrating && synced) lyrics.step(command === "nextLine" ? +1 : -1, player.isPlaying());
+      return true;
+    case "offsetDown":
+    case "offsetUp":
+    case "offsetDownBig":
+    case "offsetUpBig": {
+      const step = command.endsWith("Big") ? 1000 : OFFSET_STEP_MS;
+      nudgeOffset(command.startsWith("offsetDown") ? -step : step);
+      return true;
+    }
+    case "toggleAutoScroll":
+      updateSettings({ autoScroll: !state.settings.autoScroll });
+      toast(`自動捲動：${state.settings.autoScroll ? "開" : "關"}`);
+      if (state.settings.autoScroll) scroller.follow();
+      return true;
+    case "centerCurrent":
+      if (!scroller.center()) toast("還沒有正在播放的歌詞行");
+      return true;
+    case "calibrateToggle":
+      if (!state.current) return false;
+      calibrator.toggle();
+      return true;
+    case "calibrateKey":
+      if (!calibrating) return false;
+      calibrator.pressS();
+      return true;
+    case "confirm":
+      if (calibrator.phase !== "confirming") return false;
+      calibrator.confirm();
+      return true;
+    default:
+      return false;
+  }
+}
+
+installKeyboard(onCommand, () => {
+  if (calibrator.active) calibrator.cancel();
+  setSettingsOpen(false);
+  songBar.close();
 });
 
 // Handle for poking at things from the browser console.
-window.lyricPlayer = { player, lyrics, scroller, state };
+window.lyricPlayer = { player, lyrics, scroller, state, calibrator };
 
 // ---- library tree -----------------------------------------------------------
 
@@ -253,18 +318,28 @@ function showHeading() {
   showOffset();
 }
 
+function showNotice() {
+  const song = state.current?.song;
+  const notes = [];
+  if (song && !song.synced) notes.push("這首歌沒有同步時間，無法點行跳播（之後會加入手動打點同步）。");
+  if (song?.auto_offset_ms && song.offset_ms === song.auto_offset_ms) {
+    notes.push(`已依時長差自動設定 offset ${formatOffsetSeconds(song.auto_offset_ms)}，不準可用「校準時間」修正。`);
+  }
+  $("song-notice").hidden = !notes.length;
+  $("song-notice").textContent = notes.join(" ");
+}
+
 /** Display a song (from GET/build). */
 function showSong(data) {
+  calibrator.reset(); // unsaved calibration belongs to the previous song
   state.current = data;
   const { song } = data;
   songBar.close();
   $("welcome").hidden = true;
   $("song").hidden = false;
   showHeading();
-  const notice = $("song-notice");
-  notice.hidden = song.synced;
-  notice.textContent = song.synced ? "" : "這首歌沒有同步時間，無法點行跳播（之後會加入手動打點同步）。";
   lyrics.render(song);
+  showNotice();
   tree.setCurrent(data.artist_slug, data.title_slug);
   $("main").scrollTop = 0;
   window.scrollTo(0, 0);
@@ -274,6 +349,7 @@ function showSong(data) {
 }
 
 function showEmpty() {
+  calibrator.reset();
   state.current = null;
   player.stop();
   lyrics.clear();
@@ -294,8 +370,10 @@ const songBar = new SongBar({
   current: () => state.current,
   beforeChange: flushOffset,
   onUpdated: (res, change) => {
+    calibrator.cancel();
     state.current = res;
     showHeading();
+    showNotice();
     if (change === "video") {
       player.load(res.song.youtube.video_id).catch((err) => status.set("error", err.message));
     } else if (change === "info") {

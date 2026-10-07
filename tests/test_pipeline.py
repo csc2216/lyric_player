@@ -64,3 +64,21 @@ def test_reason_lists_lead_once():
     assert not auto_ok
     assert reason.count("lead") == 1
     assert checks.competitor == "B - Other"
+
+
+@pytest.mark.parametrize(
+    "video, lyrics, expected",
+    [
+        (217.5, 214.0, 3500),  # video longer -> lyrics start later
+        (215.0, 214.0, 1000),  # exactly 1s: applies
+        (214.9, 214.0, 0),  # under 1s: ignore
+        (210.0, 214.0, 0),  # video shorter: keep 0
+        (None, 214.0, 0),
+        (214.0, None, 0),
+        (253.32 + 0.68, 253.32, 0),  # real 밤편지 case: +0.68s stays 0
+    ],
+)
+def test_default_offset_ms(video, lyrics, expected):
+    from app.services.pipeline import default_offset_ms
+
+    assert default_offset_ms(video, lyrics) == expected

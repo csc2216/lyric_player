@@ -48,6 +48,9 @@ class Song(BaseModel):
     lrclib: LrclibRef | None = None
     synced: bool = False
     offset_ms: int = 0
+    # offset_ms set automatically at build from the video/LRCLIB duration
+    # difference (None if not auto-set); the UI shows a hint while they match
+    auto_offset_ms: int | None = None
     lines: list[Line] = Field(default_factory=list)
     translator: TranslatorInfo | None = None
 

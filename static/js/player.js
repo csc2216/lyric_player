@@ -102,6 +102,10 @@ export class Player {
     this.yt.seekTo(seconds, true);
   }
 
+  pause() {
+    if (this.isReady) this.yt.pauseVideo();
+  }
+
   stop() {
     if (this.isReady) this.yt.stopVideo();
   }

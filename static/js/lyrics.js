@@ -16,6 +16,7 @@ export class LyricsView {
    * @param {(index: number) => void} handlers.onCurrentChange highlighted line changed
    * @param {(index: number, tr: string) => Promise<void>} handlers.onEditTranslation save an edit
    * @param {(index: number) => void} handlers.onRetranslate retranslate one line
+   * @param {(index: number) => void} handlers.onSelectTarget calibration: a line was clicked
    */
   constructor(container, handlers) {
     this.container = container;
@@ -27,6 +28,9 @@ export class LyricsView {
     this.hold = null;
     this.preroll = PREROLL;
     this.clickTimer = null;
+    // Calibration: clicks pick the target line instead of seeking; editing is off.
+    this.selectMode = false;
+    this.target = -1;
     container.addEventListener("click", (e) => this.#onClick(e));
     container.addEventListener("dblclick", (e) => this.#onDblClick(e));
   }
@@ -40,6 +44,7 @@ export class LyricsView {
     this.timeline = buildTimeline(song.lines);
     this.current = -1;
     this.hold = null;
+    this.target = -1;
     this.lineEls = song.lines.map((line, i) => this.#renderLine(line, i));
     this.container.replaceChildren(...this.lineEls);
   }
@@ -125,6 +130,13 @@ export class LyricsView {
     if (trEl && !trEl.isContentEditable) this.#fillTranslation(trEl, text);
   }
 
+  /** Mark the calibration target line (-1 = none). */
+  setTarget(index) {
+    this.lineEls[this.target]?.classList.remove("calib-target");
+    this.target = index;
+    this.lineEls[index]?.classList.add("calib-target");
+  }
+
   setLineBusy(index, busy) {
     this.lineEls[index]?.classList.toggle("busy", busy);
   }
@@ -134,6 +146,10 @@ export class LyricsView {
     const lineEl = e.target.closest(".line");
     if (!lineEl || !this.song) return;
     const index = Number(lineEl.dataset.index);
+    if (this.selectMode) {
+      if (typeof this.song.lines[index]?.t === "number") this.handlers.onSelectTarget?.(index);
+      return;
+    }
     if (e.target.closest('[data-action="retranslate"]')) {
       e.target.blur();
       this.handlers.onRetranslate?.(index);
@@ -150,7 +166,7 @@ export class LyricsView {
 
   #onDblClick(e) {
     const trEl = e.target.closest(".tr");
-    if (!trEl || trEl.isContentEditable || !this.song) return;
+    if (!trEl || trEl.isContentEditable || !this.song || this.selectMode) return;
     clearTimeout(this.clickTimer);
     this.#startEdit(trEl, Number(trEl.closest(".line").dataset.index));
   }

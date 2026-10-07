@@ -230,8 +230,12 @@ lyric-player/
 | ← / → | 跳到上一行 / 下一行開頭 |
 | A | 切換自動捲動 |
 | [ / ] | offset −/+ 100ms（顯示目前值，停止按 1 秒後 PATCH 存檔） |
+| Shift+[ / Shift+] | offset −/+ 1 秒（同上） |
+| Shift+S | 進入 / 離開校準模式 |
+| S | 校準模式中：第一下開始播放、第二下記錄時間；確認階段 = 重來 |
+| Enter | 校準確認階段：確定並存檔 |
 | C | 把目前播放的那行捲到畫面中央（不論自動捲動是否開啟） |
-| Esc | 關閉設定 / 換影片 / 編輯資訊面板 |
+| Esc | 關閉設定 / 換影片 / 編輯資訊面板；校準中 = 取消（恢復原 offset） |
 
 - 「回到目前歌詞」浮動按鈕：目前行完全不在可見範圍（含被 sticky 影片蓋住）時，顯示在歌詞區右下角；點了效果同 C，回到畫面內後自動消失。
 
@@ -242,6 +246,18 @@ lyric-player/
 ### 播放器錯誤
 
 - `onError` 收到 101 / 150（禁止嵌入）或 100（影片不存在）→ 自動換 `alternatives` 下一個，並 PATCH 存回；全部失敗則顯示錯誤和「換影片」選單。
+
+## Offset 預設值與校準模式（M4.1）
+
+- 建立歌曲時：影片時長比 LRCLIB 時長長 ≥ 1 秒 → `offset_ms` = 時長差（毫秒），並存 `auto_offset_ms` 記錄自動設定的值；影片較短或差 < 1 秒 → 0、`auto_offset_ms = null`。換影片不會自動改 offset。前後端規則各一份：`pipeline.default_offset_ms`、`util.js estimateOffsetMs`。
+- `offset_ms == auto_offset_ms` 時，歌曲畫面顯示「已依時長差自動設定 offset +N 秒，不準可用校準修正」；改過 offset 後提示消失。
+- 校準模式（toolbar「校準時間」或 Shift+S）：
+  - 目標預設為第二個有時間戳的行；校準中點其他行改選目標（不跳播）。
+  - 第一下 S：從 `max(0, t + offset − 8 秒)` 播放；第二下 S：新 offset = `round((getCurrentTime() − t) × 1000)`。
+  - 確認階段：顯示舊值 / 新值 / 差值，套用新 offset 從目標行前 3 秒重播。Enter / 確定 → 存檔離開；S / 重來 → 回到等第一下 S（下次從新估計值前 8 秒開始）；Esc / 取消 → 恢復原 offset 離開。
+  - 「依時長差估計」按鈕：用同一規則算出 offset，直接套用並存檔（適合已存在的舊歌）。
+  - 校準中停用點行跳播、←/→、[ ]、雙擊編輯；空白鍵照常。
+  - 狀態機 idle → armed → listening → confirming 是純函式 `static/js/calibration.js`（effects 交給 `calibrator.js` 執行），測試在 `tests/js/calibration.test.mjs`。
 
 ## 沒有同步歌詞時：手動打點模式
 
