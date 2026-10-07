@@ -399,3 +399,21 @@ def test_api_never_exposes_api_key(built, monkeypatch):
     body = built.client.get("/api/songs/test-artist/paper-moon").text
     assert "sk-secret" not in body
     assert not re.search(r"api_key", body)
+
+
+def test_build_alias_artist_goes_into_existing_folder(built):
+    FakeLrclib.items.append(lrclib_item(2, 200.0, track="Other", artist="Test Artist (테스트)"))
+    res = built.client.post("/api/build", json={"lrclib_id": 2, "video_id": "ABCDEFGHIJK"}).json()
+    assert (res["artist_slug"], res["title_slug"]) == ("test-artist", "other")
+    assert res["song"]["artist"] == "Test Artist"
+    tree = built.client.get("/api/library").json()
+    assert [s["title"] for s in tree[0]["songs"]] == ["Other", "Paper Moon"]
+
+
+def test_patch_rename_into_existing_folder_adopts_name(built):
+    FakeLrclib.items.append(lrclib_item(2, 200.0, track="Other", artist="Someone"))
+    built.client.post("/api/build", json={"lrclib_id": 2, "video_id": "ABCDEFGHIJK"})
+    res = built.client.patch("/api/songs/someone/other", json={"artist": "Test Artist (테스트)", "offset_ms": 50})
+    data = res.json()
+    assert (data["artist_slug"], data["song"]["artist"]) == ("test-artist", "Test Artist")
+    assert built.lib.get_song("test-artist", "other").offset_ms == 50

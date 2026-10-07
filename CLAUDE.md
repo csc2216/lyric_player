@@ -79,6 +79,8 @@ lyric-player/
         └── <title_slug>.json
 ```
 
+測試：後端 `uv run pytest`；前端純函式 `node --test "tests/js/*.test.mjs"`（Node 22 的 `--test` 不吃資料夾，要給 glob；WSL 上沒裝 node 時可用 Windows 的 `node.exe`）。
+
 啟動：`uv run uvicorn app.main:app --port 8765 --reload`，瀏覽器開 `http://localhost:8765`。
 （IFrame API 必須在 http origin 下跑，不能用 file://。）
 
@@ -215,6 +217,7 @@ lyric-player/
 
 - 播放中用 `requestAnimationFrame` 迴圈（節流到約 50ms）讀 `getCurrentTime()`；暫停時停止迴圈。
 - 找目前行：最後一個 `t + offset ≤ now` 的行（二分搜尋）。只在 index 改變時更新 DOM class。
+- 時間相關純函式放 `static/js/sync.js`（`buildTimeline`、`findCurrentIndex`、`seekTarget`、`applyHold`），測試在 `tests/js/`。點行後先 seek 到 `t - PREROLL`，這 0.15 秒內用 hold 讓被點的行維持 highlight，避免閃回上一行。
 - 自動捲動（可關）：目前行不在視窗中間 40% 區域時 `scrollIntoView({block: "center", behavior: "smooth"})`。使用者手動捲動（wheel / touchmove / 拖捲軸）後暫停自動捲動 3 秒。
 
 ### 鍵盤

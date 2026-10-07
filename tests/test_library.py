@@ -3,7 +3,7 @@ import json
 import pytest
 
 from app.models import Line, Song
-from app.services.library import Library, LibraryError, SongExists, SongNotFound, slugify
+from app.services.library import Library, LibraryError, SongExists, SongNotFound, artist_slug, slugify
 
 
 @pytest.fixture
@@ -179,3 +179,72 @@ def test_move_conflict(lib):
     with pytest.raises(SongExists):
         lib.move_song("test-artist", "one", title="Two")
     assert lib.get_song("test-artist", "one").title == "One"
+
+
+# ---- artist slug aliases ----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "name, expected",
+    [
+        ("IU (아이유)", "iu"),
+        ("IU(아이유)", "iu"),
+        ("IU", "iu"),
+        ("BTS [방탄소년단]", "bts"),
+        ("周杰倫（Jay Chou）", "周杰倫"),
+        ("YOASOBI 【ヨアソビ】", "yoasobi"),
+        ("IU (아이유) (KR)", "iu"),  # several trailing aliases
+        ("(G)I-DLE", "(g)i-dle"),  # leading parenthesis is part of the name
+        ("(G)I-DLE ((여자)아이들)", "(g)i-dle-((여자)아이들)"),  # nested: left alone
+        ("(아이유)", "(아이유)"),  # nothing would remain: keep it
+        ("Artist (feat. X) Band", "artist-(feat.-x)-band"),  # only trailing
+    ],
+)
+def test_artist_slug_drops_trailing_alias(name, expected):
+    assert artist_slug(name) == expected
+
+
+def test_title_slug_keeps_parentheses(lib):
+    lib.save_song(song("IU (아이유)", "Through the Night (밤편지)"))
+    assert (lib.root / "iu" / "through-the-night-(밤편지).json").is_file()
+
+
+def test_alias_artist_joins_existing_folder_with_its_name(lib):
+    lib.save_song(song("IU", "One"))
+    saved, created = lib.save_song(song("IU (아이유)", "Two"))
+    assert created
+    assert saved.artist == "IU"  # adopts the folder's existing display name
+    assert lib.get_song("iu", "two").artist == "IU"
+    tree = lib.list_tree()
+    assert len(tree) == 1 and tree[0]["artist"] == "IU"
+    assert [s["title"] for s in tree[0]["songs"]] == ["One", "Two"]
+
+
+def test_first_song_in_folder_keeps_its_own_name(lib):
+    saved, _ = lib.save_song(song("IU (아이유)", "One"))
+    assert saved.artist == "IU (아이유)"
+    other, _ = lib.save_song(song("IU", "Two"))
+    assert other.artist == "IU (아이유)"
+
+
+def test_alias_artist_finds_existing_song(lib):
+    lib.save_song(song("IU", "One"))
+    _, created = lib.save_song(song("IU (아이유)", "One"))
+    assert not created
+    assert lib.find_existing("IU (아이유)", "One").artist == "IU"
+
+
+def test_move_into_existing_folder_adopts_name(lib):
+    lib.save_song(song("IU", "One"))
+    lib.save_song(song("Someone", "Two"))
+    moved = lib.move_song("someone", "two", artist="IU (아이유)")
+    assert moved.artist == "IU"
+    assert lib.get_song("iu", "two").artist == "IU"
+    assert not (lib.root / "someone").exists()
+
+
+def test_move_sole_song_can_change_display_name(lib):
+    lib.save_song(song("IU", "One"))
+    moved = lib.move_song("iu", "one", artist="IU (아이유)")
+    assert moved.artist == "IU (아이유)"  # no other song in the folder to adopt from
+    assert lib.get_song("iu", "one").artist == "IU (아이유)"

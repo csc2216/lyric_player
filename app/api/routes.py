@@ -18,7 +18,7 @@ from app.models import (
     SongResponse,
 )
 from app.services import pipeline
-from app.services.library import Library, slugify
+from app.services.library import Library
 
 router = APIRouter(prefix="/api")
 
@@ -35,7 +35,7 @@ def get_library_tree(lib: Library = Depends(get_library)) -> list[dict]:
 @router.get("/songs/{artist_slug}/{title_slug}")
 def get_song(artist_slug: str, title_slug: str, lib: Library = Depends(get_library)) -> SongResponse:
     song = lib.get_song(artist_slug, title_slug)
-    return SongResponse(artist_slug=slugify(song.artist), title_slug=slugify(song.title), song=song)
+    return pipeline.song_response(song)
 
 
 @router.post("/resolve")

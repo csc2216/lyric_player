@@ -26,10 +26,10 @@ from app.models import (
     YoutubeVideo,
 )
 from app.services import translator, youtube
-from app.services.library import Library, slugify
+from app.services.library import Library, song_slugs
 from app.services.lrc_parser import build_lines
 from app.services.lrclib import LrclibClient, LrclibError
-from app.services.text import similarity
+from app.services.text import same_name
 from app.services.youtube import ScoredVideo
 
 # LRCLIB candidates within this score of the top one are treated as tied;
@@ -39,8 +39,6 @@ TIE_SCORE_MARGIN = 0.02
 AUTO_LEAD_MARGIN = 0.1
 # ...and its video must be within this many seconds of the LRCLIB duration.
 AUTO_MAX_VIDEO_DIFF = 3.0
-# Two candidates with names at least this similar are versions of one song.
-SAME_SONG_SIMILARITY = 0.85
 MAX_CANDIDATES = 8
 # Extra YouTube searches for candidates that are different songs.
 MAX_EXTRA_SEARCHES = 2
@@ -98,10 +96,8 @@ def _cache_videos(lrclib_id: int, ranked: list[ScoredVideo]) -> None:
 
 
 def same_song(a: LrclibCandidate, b: LrclibCandidate) -> bool:
-    return (
-        similarity(a.track_name, b.track_name) >= SAME_SONG_SIMILARITY
-        and similarity(a.artist_name, b.artist_name) >= SAME_SONG_SIMILARITY
-    )
+    """Versions/duplicate uploads of one song (aliases like "(아이유)" ignored)."""
+    return same_name(a.track_name, b.track_name) and same_name(a.artist_name, b.artist_name)
 
 
 def _video_match(scored: ScoredVideo, target: float | None) -> VideoMatch:
@@ -187,7 +183,7 @@ def judge_auto(
     notes = []
     if competitor is None:
         notes.append(f"all {len(candidates)} results are the same song")
-    else:
+    elif lead >= AUTO_LEAD_MARGIN:
         notes.append(f"lead {lead:.2f} over '{checks.competitor}'")
     if tie_broken:
         picked = f"{pick.duration:.0f}s" if pick.duration is not None else "?"
@@ -263,8 +259,9 @@ def resolve(query: str, lrclib_factory: LrclibFactory | None = None) -> ResolveR
 # ---- build --------------------------------------------------------------
 
 
-def _response(song: Song, **extra) -> SongResponse:
-    return SongResponse(artist_slug=slugify(song.artist), title_slug=slugify(song.title), song=song, **extra)
+def song_response(song: Song, **extra) -> SongResponse:
+    artist_slug, title_slug = song_slugs(song)
+    return SongResponse(artist_slug=artist_slug, title_slug=title_slug, song=song, **extra)
 
 
 def _youtube_info(video_id: str, ranked: list[ScoredVideo]) -> YoutubeInfo:
@@ -304,7 +301,7 @@ def build(
         # A concurrent build of the same song just finished: reuse it even if
         # force=true, so a double click never translates twice.
         if existing and (waited or not force):
-            return _response(existing, created=False)
+            return song_response(existing, created=False)
 
         lyrics = build_lines(c.synced_lyrics, c.plain_lyrics)
         if not lyrics.lines:
@@ -332,7 +329,7 @@ def build(
             translator=TranslatorInfo(model=settings.translate_model, prompt_version=translator.PROMPT_VERSION),
         )
         song, created = lib.save_song(song, force=force)
-        return _response(song, created=created, missing_translations=result.missing)
+        return song_response(song, created=created, missing_translations=result.missing)
 
 
 # ---- edit -----------------------------------------------------------------
@@ -376,12 +373,12 @@ def patch_song(lib: Library, artist_slug: str, title_slug: str, patch: SongPatch
 
         renamed = (patch.artist and patch.artist != song.artist) or (patch.title and patch.title != song.title)
         if renamed:
-            # move first (it rejects conflicts), then write the other edits at the new place
-            lib.move_song(artist_slug, title_slug, artist=patch.artist, title=patch.title)
-            song = song.model_copy(update={"artist": patch.artist or song.artist, "title": patch.title or song.title})
-        new_artist_slug, new_title_slug = slugify(song.artist), slugify(song.title)
-        song = lib.update_song(new_artist_slug, new_title_slug, song)
-        return _response(song)
+            # move first (it rejects conflicts and may adopt the target folder's
+            # artist name), then write the other edits at the new place
+            moved = lib.move_song(artist_slug, title_slug, artist=patch.artist, title=patch.title)
+            song = song.model_copy(update={"artist": moved.artist, "title": moved.title})
+        song = lib.update_song(*song_slugs(song), song)
+        return song_response(song)
 
 
 def retranslate(
@@ -415,5 +412,5 @@ def retranslate(
             }
         )
         song = lib.update_song(artist_slug, title_slug, song)
-        return _response(song, missing_translations=result.missing)
+        return song_response(song, missing_translations=result.missing)
 

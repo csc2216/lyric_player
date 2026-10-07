@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 
 from app.models import Song, utcnow
+from app.services.text import strip_alias
 
 log = logging.getLogger(__name__)
 
@@ -35,6 +36,16 @@ def slugify(name: str) -> str:
     return slug or "untitled"
 
 
+def artist_slug(name: str) -> str:
+    """Artist folder slug: like slugify, but trailing aliases are dropped (IU (아이유) -> iu)."""
+    return slugify(strip_alias(name))
+
+
+def song_slugs(song: Song) -> tuple[str, str]:
+    """(artist_slug, title_slug) used for the song's file path."""
+    return artist_slug(song.artist), slugify(song.title)
+
+
 def _sort_key(name: str) -> str:
     return name.casefold()
 
@@ -54,7 +65,26 @@ class Library:
         return path
 
     def path_for(self, song: Song) -> Path:
-        return self.song_path(slugify(song.artist), slugify(song.title))
+        return self.song_path(*song_slugs(song))
+
+    def folder_artist_name(self, artist_slug: str, exclude: Path | None = None) -> str | None:
+        """Display name already used by songs in this artist folder, if any."""
+        folder = self.root / artist_slug
+        if not folder.is_dir():
+            return None
+        for f in sorted(folder.glob("*.json")):
+            if f.name.startswith(".") or (exclude is not None and f.resolve() == exclude):
+                continue
+            try:
+                return self._read(f).artist
+            except (OSError, ValueError):
+                continue
+        return None
+
+    def _adopt_folder_name(self, song: Song, exclude: Path | None = None) -> Song:
+        """Songs in one artist folder share the folder's existing display name."""
+        name = self.folder_artist_name(song_slugs(song)[0], exclude=exclude)
+        return song.model_copy(update={"artist": name}) if name and name != song.artist else song
 
     def _read(self, path: Path) -> Song:
         return Song.model_validate_json(path.read_text(encoding="utf-8"))
@@ -107,6 +137,7 @@ class Library:
         return self._read(path)
 
     def find_existing(self, artist: str, title: str) -> Song | None:
+        """Song stored under the same artist/title slugs, if any."""
         path = self.path_for(Song(artist=artist, title=title))
         return self._read(path) if path.is_file() else None
 
@@ -116,6 +147,7 @@ class Library:
         If the same artist/title already exists and not `force`, the existing
         song is returned unchanged (created=False).
         """
+        song = self._adopt_folder_name(song)
         path = self.path_for(song)
         if path.is_file():
             existing = self._read(path)
@@ -157,6 +189,8 @@ class Library:
         song = song.model_copy(
             update={"artist": artist or song.artist, "title": title or song.title, "updated_at": utcnow()}
         )
+        if artist:
+            song = self._adopt_folder_name(song, exclude=old_path)
         new_path = self.path_for(song)
         if new_path != old_path and new_path.exists():
             raise SongExists(f"已有同名歌曲：{song.artist} - {song.title}")

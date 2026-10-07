@@ -7,10 +7,44 @@
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <main>
-    <h1>歌詞播放器</h1>
-    <p id="status">載入中…</p>
-  </main>
+  <aside class="sidebar">
+    <h1 class="app-title">歌詞播放器</h1>
+    <input id="tree-filter" class="tree-filter" type="search" placeholder="過濾歌手或歌名" autocomplete="off">
+    <nav id="tree" class="tree" aria-label="歌曲庫"></nav>
+  </aside>
+
+  <div class="main" id="main">
+    <header class="topbar">
+      <form id="create-form" class="create-form" autocomplete="off">
+        <input id="create-input" type="text" placeholder="歌名，或 歌手 - 歌名" required>
+        <button id="create-button" type="submit">建立</button>
+      </form>
+      <div id="status" class="status" role="status" aria-live="polite" hidden></div>
+    </header>
+
+    <section id="candidates" class="candidates" hidden></section>
+
+    <section id="song" class="song" hidden>
+      <div id="player-wrap" class="player-wrap">
+        <div class="player-box"><div id="player"></div></div>
+        <div class="song-bar">
+          <div class="song-heading">
+            <span id="song-title" class="song-title"></span>
+            <span id="song-meta" class="song-meta"></span>
+          </div>
+          <button id="shrink-button" type="button" class="small">縮小影片</button>
+        </div>
+      </div>
+      <p id="song-notice" class="song-notice" hidden></p>
+      <div id="lyrics" class="lyrics"></div>
+    </section>
+
+    <section id="welcome" class="welcome">
+      <p>從左側選一首歌，或在上方輸入歌名建立新歌。</p>
+      <p class="hint">點歌詞任一行從那裡開始播；空白鍵播放 / 暫停。</p>
+    </section>
+  </div>
+
   <script type="module" src="/js/main.js"></script>
 </body>
 </html>
