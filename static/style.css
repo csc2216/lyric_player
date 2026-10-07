@@ -13,8 +13,11 @@
   --error: #c62828;
   --shadow: 0 6px 24px rgb(0 0 0 / 0.12);
   --radius: 8px;
-  --sidebar-w: 280px;
-  --player-w: 640px;
+  --sidebar-w: 260px;
+  --sidebar-w-collapsed: 40px;
+  --center-w: 440px;
+  --center-w-wide: 520px; /* when the sidebar is collapsed */
+  --lyrics-max: 720px;
   font-family: system-ui, "Noto Sans TC", "Noto Sans KR", "Noto Sans JP", sans-serif;
 }
 
@@ -65,11 +68,8 @@ body {
 }
 
 body {
-  display: grid;
-  grid-template-columns: var(--sidebar-w) 1fr;
   background: var(--bg);
   color: var(--text);
-  overflow: hidden;
 }
 
 button {
@@ -129,15 +129,39 @@ input {
 .sidebar {
   display: flex;
   flex-direction: column;
-  min-height: 0;
   border-right: 1px solid var(--border);
   background: var(--panel);
 }
 
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 6px 8px 16px;
+}
+
 .app-title {
+  flex: 1;
   margin: 0;
-  padding: 14px 16px 8px;
   font-size: 1.1rem;
+  white-space: nowrap;
+}
+
+.sidebar-toggle {
+  flex: none;
+  width: 28px;
+  font-size: 1.1rem;
+}
+
+.sidebar-collapsed .sidebar-head {
+  justify-content: center;
+  padding: 10px 0;
+}
+
+.sidebar-collapsed .app-title,
+.sidebar-collapsed .tree-filter,
+.sidebar-collapsed .tree {
+  display: none;
 }
 
 .tree-filter {
@@ -200,25 +224,9 @@ input {
 
 /* ---- main column ---- */
 
-.main {
-  min-width: 0;
-  height: 100vh;
-  overflow-y: auto; /* scroll container, so the player can stick to its top */
-}
-
-.topbar {
-  position: sticky; /* create box + settings stay reachable while reading lyrics */
-  top: 0;
-  z-index: 5;
-  padding: 12px 20px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg);
-}
-
 .create-form {
   display: flex;
   gap: 8px;
-  max-width: var(--player-w);
 }
 
 .create-form input {
@@ -229,7 +237,6 @@ input {
   display: flex;
   gap: 8px;
   align-items: center;
-  margin-top: 8px;
   font-size: 0.9rem;
 }
 
@@ -262,7 +269,6 @@ input {
 }
 
 .welcome {
-  padding: 40px 20px;
   color: var(--text-2);
 }
 
@@ -272,10 +278,7 @@ input {
 
 /* ---- candidates ---- */
 
-.candidates {
-  padding: 16px 20px;
-  max-width: calc(var(--player-w) + 40px);
-}
+
 
 .candidates-head {
   display: flex;
@@ -350,42 +353,19 @@ input {
 
 /* ---- song: player + lyrics ---- */
 
-.player-wrap {
-  position: sticky;
-  top: var(--topbar-h, 0px); /* stacked under the sticky topbar; set from JS */
-  z-index: 1;
-  padding: 12px 20px 8px;
-  background: var(--bg);
-  border-bottom: 1px solid var(--border);
-}
-
 .player-box {
+  position: relative;
   width: 100%;
-  max-width: var(--player-w);
   aspect-ratio: 16 / 9;
   background: #000;
   border-radius: var(--radius);
   overflow: hidden;
-  transition: max-width 0.2s;
-}
-
-.player-wrap.shrunk .player-box {
-  max-width: 280px;
 }
 
 .player-box iframe {
   display: block;
   width: 100%;
   height: 100%;
-}
-
-.song-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  max-width: var(--player-w);
-  margin-top: 8px;
 }
 
 .song-title {
@@ -399,14 +379,9 @@ input {
 }
 
 .song-notice {
-  margin: 12px 20px 0;
+  margin: 0;
   color: var(--warn);
-  font-size: 0.9rem;
-}
-
-.lyrics {
-  max-width: var(--player-w);
-  padding: 12px 20px 50vh; /* room to scroll the last lines up */
+  font-size: 0.85rem;
 }
 
 .line {
@@ -459,39 +434,7 @@ input {
   background: none;
 }
 
-@media (max-width: 760px) {
-  body {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
-    overflow: auto;
-  }
-
-  .sidebar {
-    max-height: 35vh;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .main {
-    height: auto;
-  }
-
-  .topbar,
-  .player-wrap,
-  .candidates,
-  .lyrics {
-    padding-left: 16px;
-    padding-right: 16px;
-  }
-}
-
-/* ---- M4: topbar settings ---- */
-
-.topbar-row {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-}
+/* ---- settings popover ---- */
 
 .create-form {
   flex: 1;
@@ -548,10 +491,6 @@ kbd {
 
 /* ---- song toolbar + panels ---- */
 
-.song-bar {
-  flex-wrap: wrap;
-}
-
 .song-tools {
   display: flex;
   flex-wrap: wrap;
@@ -583,14 +522,10 @@ button.small.danger {
 }
 
 .song-panel {
-  max-width: var(--player-w);
-  margin-top: 10px;
   padding: 12px 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
-  max-height: 45vh; /* refined from JS to the space left in the window */
-  overflow-y: auto;
 }
 
 .song-panel h3 {
@@ -722,27 +657,7 @@ body.layout-inline .line {
   align-items: baseline;
 }
 
-body.layout-inline .lyrics {
-  max-width: 980px;
-}
-
 /* ---- back-to-current button ---- */
-
-.jump-anchor {
-  position: sticky;
-  bottom: 20px;
-  display: flex;
-  justify-content: flex-end;
-  align-items: flex-end; /* don't stretch the button to the 0px height */
-  max-width: var(--player-w);
-  height: 0;
-  padding: 0 20px;
-  pointer-events: none;
-}
-
-body.layout-inline .jump-anchor {
-  max-width: 980px;
-}
 
 .jump-button {
   flex: none;
@@ -800,8 +715,6 @@ body.layout-inline .jump-anchor {
 }
 
 .calib-panel {
-  max-width: var(--player-w);
-  margin-top: 10px;
   padding: 12px 14px;
   border: 2px solid var(--accent);
   border-radius: var(--radius);
@@ -883,4 +796,199 @@ body.calibrating .line-actions {
   position: absolute;
   left: -22px;
   top: 6px;
+}
+
+/* ==== layout: sidebar | center (controls + video) | lyrics ==== */
+
+.app {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) var(--center-w) minmax(0, 1fr);
+  height: 100vh;
+  transition: grid-template-columns 150ms ease;
+}
+
+.sidebar-collapsed .app {
+  grid-template-columns: var(--sidebar-w-collapsed) var(--center-w-wide) minmax(0, 1fr);
+}
+
+.sidebar,
+.center,
+.lyrics-col {
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+}
+
+.sidebar {
+  overflow-y: hidden; /* the tree scrolls inside */
+}
+
+/* center column: create box, status, video, song info, tools, panels */
+.center {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 16px 24px;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+}
+
+.center-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.center-head .create-form {
+  flex: 1;
+  min-width: 0;
+}
+
+.center-head .create-form input {
+  min-width: 0;
+}
+
+.song-area {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.song-area[hidden] {
+  display: none;
+}
+
+.song-heading {
+  line-height: 1.4;
+}
+
+.song-heading .song-meta {
+  display: block;
+  margin-left: 0;
+}
+
+#settings-button {
+  width: 32px;
+}
+
+/* lyrics column: its own scroll container */
+.lyrics-col {
+  overflow-y: auto;
+  --lyrics-max: 720px;
+}
+
+body.layout-inline .lyrics-col {
+  --lyrics-max: 920px;
+}
+
+/* centered, leaning left: a third of the spare width goes on the left */
+.lyrics,
+.candidates,
+.welcome {
+  max-width: calc(var(--lyrics-max) + 40px);
+  margin-left: max(0px, calc((100% - var(--lyrics-max) - 40px) * 0.33));
+  padding: 0 20px;
+}
+
+.lyrics {
+  padding-top: 20px;
+  padding-bottom: 50vh; /* room to scroll the last lines up */
+}
+
+.candidates {
+  padding-top: 16px;
+}
+
+.welcome {
+  padding-top: 40px;
+}
+
+/* "back to current line": bottom-right corner of the lyrics column */
+.jump-anchor {
+  position: sticky;
+  bottom: 20px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-end; /* don't stretch the button to the 0px height */
+  height: 0;
+  padding-right: 24px;
+  pointer-events: none;
+}
+
+/* "放大影片": the video covers center + lyrics until restored */
+.expand-close {
+  display: none;
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1;
+  box-shadow: var(--shadow);
+}
+
+body.video-expanded .player-box {
+  position: fixed;
+  z-index: 30;
+  inset: 0 0 0 var(--sidebar-w);
+  width: auto;
+  aspect-ratio: auto;
+  border-radius: 0;
+}
+
+.sidebar-collapsed body.video-expanded .player-box {
+  left: var(--sidebar-w-collapsed);
+}
+
+body.video-expanded .expand-close {
+  display: block;
+}
+
+/* ---- narrow screens: stack sidebar, video area, lyrics ---- */
+
+@media (max-width: 999px) {
+  .app,
+  .sidebar-collapsed .app {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    height: auto;
+  }
+
+  .sidebar {
+    max-height: 40vh;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sidebar-collapsed .sidebar-head {
+    justify-content: flex-start;
+    padding: 6px 12px;
+  }
+
+  .center {
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .lyrics-col {
+    height: 75vh; /* still its own scroll container */
+  }
+
+  .lyrics,
+  .candidates,
+  .welcome {
+    margin-left: 0;
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  body.video-expanded .player-box,
+  .sidebar-collapsed body.video-expanded .player-box {
+    left: 0;
+  }
+}
+
+.expand-close kbd {
+  margin-left: 4px;
+  border-color: rgb(255 255 255 / 0.6);
+  color: inherit;
 }

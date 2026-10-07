@@ -50,27 +50,53 @@ const loop = new SyncLoop(
 );
 
 const scroller = new AutoScroller({
-  main: $("main"),
-  coverEl: () => $("player-wrap"),
+  main: $("lyrics-col"),
+  coverEl: () => null, // nothing overlaps the lyrics column any more
   currentEl: () => lyrics.currentEl,
   onOffscreen: (show) => ($("jump-button").hidden = !show),
 });
-
-// The player sticks right below the (sticky, variable-height) topbar.
-new ResizeObserver(([entry]) => {
-  document.documentElement.style.setProperty("--topbar-h", `${entry.target.offsetHeight}px`);
-}).observe(document.querySelector(".topbar"));
 
 $("jump-button").addEventListener("click", (e) => {
   e.currentTarget.blur();
   scroller.center();
 });
 
-$("shrink-button").addEventListener("click", (e) => {
-  const small = $("player-wrap").classList.toggle("shrunk");
-  e.currentTarget.textContent = small ? "放大影片" : "縮小影片";
+// ---- expanded video (covers center + lyrics) / collapsible sidebar ----------
+
+function setVideoExpanded(expanded) {
+  document.body.classList.toggle("video-expanded", expanded);
+  $("expand-button").textContent = expanded ? "還原影片" : "放大影片";
+}
+const videoExpanded = () => document.body.classList.contains("video-expanded");
+$("expand-button").addEventListener("click", (e) => {
   e.currentTarget.blur();
+  setVideoExpanded(!videoExpanded());
 });
+$("expand-close").addEventListener("click", (e) => {
+  e.currentTarget.blur();
+  setVideoExpanded(false);
+});
+
+const narrowScreen = matchMedia("(max-width: 999px)");
+
+function setSidebarCollapsed(collapsed) {
+  document.documentElement.classList.toggle("sidebar-collapsed", collapsed);
+  const button = $("sidebar-toggle");
+  button.textContent = collapsed ? "»" : "«";
+  button.title = collapsed ? "展開歌曲庫（B）" : "收合歌曲庫（B）";
+  button.setAttribute("aria-expanded", String(!collapsed));
+}
+function toggleSidebar() {
+  const collapsed = !document.documentElement.classList.contains("sidebar-collapsed");
+  setSidebarCollapsed(collapsed);
+  updateSettings({ sidebarCollapsed: collapsed });
+}
+$("sidebar-toggle").addEventListener("click", (e) => {
+  e.currentTarget.blur();
+  toggleSidebar();
+});
+// Narrow screens start collapsed (the saved preference is for wide layouts).
+setSidebarCollapsed(narrowScreen.matches || state.settings.sidebarCollapsed);
 
 async function retranslateLine(index) {
   const cur = state.current;
@@ -243,6 +269,9 @@ function onCommand(command) {
       toast(`自動捲動：${state.settings.autoScroll ? "開" : "關"}`);
       if (state.settings.autoScroll) scroller.follow();
       return true;
+    case "toggleSidebar":
+      toggleSidebar();
+      return true;
     case "centerCurrent":
       if (!scroller.center()) toast("還沒有正在播放的歌詞行");
       return true;
@@ -264,6 +293,7 @@ function onCommand(command) {
 }
 
 installKeyboard(onCommand, () => {
+  if (videoExpanded()) return setVideoExpanded(false); // one thing per Esc
   if (calibrator.active) calibrator.cancel();
   setSettingsOpen(false);
   songBar.close();
@@ -336,13 +366,12 @@ function showSong(data) {
   const { song } = data;
   songBar.close();
   $("welcome").hidden = true;
-  $("song").hidden = false;
+  $("song-area").hidden = false;
   showHeading();
   lyrics.render(song);
   showNotice();
   tree.setCurrent(data.artist_slug, data.title_slug);
-  $("main").scrollTop = 0;
-  window.scrollTo(0, 0);
+  $("lyrics-col").scrollTop = 0;
   if (song.youtube?.video_id) {
     player.load(song.youtube.video_id).catch((err) => status.set("error", err.message));
   }
@@ -353,8 +382,9 @@ function showEmpty() {
   state.current = null;
   player.stop();
   lyrics.clear();
-  $("song").hidden = true;
+  $("song-area").hidden = true;
   $("welcome").hidden = false;
+  setVideoExpanded(false);
   $("jump-button").hidden = true;
   tree.current = null;
   tree.render();

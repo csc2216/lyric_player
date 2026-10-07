@@ -6,29 +6,34 @@
   <title>歌詞播放器</title>
   <link rel="stylesheet" href="/style.css">
   <script>
-    // Apply the saved theme before first paint (no light flash in dark mode).
+    // Apply saved theme / sidebar state before first paint (no flash).
     try {
-      const t = JSON.parse(localStorage.getItem("lyricPlayer.settings") || "{}").theme;
-      if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+      const s = JSON.parse(localStorage.getItem("lyricPlayer.settings") || "{}");
+      if (s.theme === "light" || s.theme === "dark") document.documentElement.dataset.theme = s.theme;
+      const narrow = matchMedia("(max-width: 999px)").matches;
+      if (s.sidebarCollapsed === true || narrow) document.documentElement.classList.add("sidebar-collapsed");
     } catch {}
   </script>
 </head>
 <body>
-  <aside class="sidebar">
-    <h1 class="app-title">歌詞播放器</h1>
-    <input id="tree-filter" class="tree-filter" type="search" placeholder="過濾歌手或歌名" autocomplete="off">
-    <nav id="tree" class="tree" aria-label="歌曲庫"></nav>
-  </aside>
+  <div class="app">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-head">
+        <h1 class="app-title">歌詞播放器</h1>
+        <button id="sidebar-toggle" type="button" class="icon sidebar-toggle" title="收合歌曲庫（B）" aria-expanded="true">«</button>
+      </div>
+      <input id="tree-filter" class="tree-filter" type="search" placeholder="過濾歌手或歌名" autocomplete="off">
+      <nav id="tree" class="tree" aria-label="歌曲庫"></nav>
+    </aside>
 
-  <div class="main" id="main">
-    <header class="topbar">
-      <div class="topbar-row">
+    <section class="center" id="center">
+      <div class="center-head">
         <form id="create-form" class="create-form" autocomplete="off">
           <input id="create-input" type="text" placeholder="歌名，或 歌手 - 歌名" required>
           <button id="create-button" type="submit">建立</button>
         </form>
         <div class="settings">
-          <button id="settings-button" type="button" class="small" aria-expanded="false">⚙ 設定</button>
+          <button id="settings-button" type="button" class="small" aria-expanded="false" title="設定">⚙</button>
           <div id="settings-panel" class="settings-panel" hidden>
             <label class="check"><input id="set-autoscroll" type="checkbox"> 自動捲動 <kbd>A</kbd></label>
             <fieldset>
@@ -43,51 +48,51 @@
               <label><input type="radio" name="theme" value="dark"> 深色</label>
             </fieldset>
             <label class="field-inline">點行時提早 <input id="set-preroll" type="number" min="0" max="2" step="0.05"> 秒開始</label>
-            <p class="hint">快捷鍵：Space 播放/暫停 · ←/→ 上/下一行 · [ / ] offset ∓100ms（加 Shift ∓1 秒）· Shift+S 校準時間 · C 回到目前歌詞 · A 自動捲動</p>
+            <p class="hint">快捷鍵：Space 播放/暫停 · ←/→ 上/下一行 · [ / ] offset ∓100ms（加 Shift ∓1 秒）· Shift+S 校準時間 · C 回到目前歌詞 · A 自動捲動 · B 收合歌曲庫</p>
           </div>
         </div>
       </div>
       <div id="status" class="status" role="status" aria-live="polite" hidden></div>
-    </header>
 
-    <section id="candidates" class="candidates" hidden></section>
-
-    <section id="song" class="song" hidden>
-      <div id="player-wrap" class="player-wrap">
-        <div class="player-box"><div id="player"></div></div>
-        <div class="song-bar">
-          <div class="song-heading">
-            <span id="song-title" class="song-title"></span>
-            <span id="song-meta" class="song-meta"></span>
-          </div>
-          <div class="song-tools">
-            <button id="calibrate-button" type="button" class="small" title="Shift+S">校準時間</button>
-            <span class="offset-ctl" title="歌詞時間偏移（[ / ] 鍵調整）">
-              <button id="offset-minus" type="button" class="small" title="歌詞提早 100ms（[）">−</button>
-              <span id="offset-value" class="offset-value">0 ms</span>
-              <button id="offset-plus" type="button" class="small" title="歌詞延後 100ms（]）">+</button>
-            </span>
-            <button id="video-button" type="button" class="small">換影片</button>
-            <button id="info-button" type="button" class="small">編輯資訊</button>
-            <button id="retranslate-all-button" type="button" class="small">全部重翻</button>
-            <button id="delete-button" type="button" class="small danger">刪除</button>
-            <button id="shrink-button" type="button" class="small">縮小影片</button>
-          </div>
+      <div id="song-area" class="song-area" hidden>
+        <div class="player-box">
+          <div id="player"></div>
+          <button id="expand-close" type="button" class="expand-close">還原 <kbd>Esc</kbd></button>
         </div>
-        <div id="song-panel" class="song-panel" hidden></div>
+        <div class="song-heading">
+          <span id="song-title" class="song-title"></span>
+          <span id="song-meta" class="song-meta"></span>
+        </div>
+        <div class="song-tools">
+          <button id="calibrate-button" type="button" class="small" title="Shift+S">校準時間</button>
+          <span class="offset-ctl" title="歌詞時間偏移（[ / ] 鍵調整，加 Shift 一次 1 秒）">
+            <button id="offset-minus" type="button" class="small" title="歌詞提早 100ms（[）">−</button>
+            <span id="offset-value" class="offset-value">0 ms</span>
+            <button id="offset-plus" type="button" class="small" title="歌詞延後 100ms（]）">+</button>
+          </span>
+          <button id="video-button" type="button" class="small">換影片</button>
+          <button id="info-button" type="button" class="small">編輯資訊</button>
+          <button id="retranslate-all-button" type="button" class="small">全部重翻</button>
+          <button id="delete-button" type="button" class="small danger">刪除</button>
+          <button id="expand-button" type="button" class="small">放大影片</button>
+        </div>
+        <p id="song-notice" class="song-notice" hidden></p>
         <div id="calib-panel" class="calib-panel" hidden></div>
+        <div id="song-panel" class="song-panel" hidden></div>
       </div>
-      <p id="song-notice" class="song-notice" hidden></p>
+    </section>
+
+    <main class="lyrics-col" id="lyrics-col">
+      <section id="candidates" class="candidates" hidden></section>
+      <section id="welcome" class="welcome">
+        <p>從左側選一首歌，或在中間輸入歌名建立新歌。</p>
+        <p class="hint">點歌詞任一行從那裡開始播；空白鍵播放 / 暫停；雙擊翻譯可以修改。</p>
+      </section>
       <div id="lyrics" class="lyrics"></div>
       <div class="jump-anchor">
         <button id="jump-button" type="button" class="jump-button" hidden>回到目前歌詞 <kbd>C</kbd></button>
       </div>
-    </section>
-
-    <section id="welcome" class="welcome">
-      <p>從左側選一首歌，或在上方輸入歌名建立新歌。</p>
-      <p class="hint">點歌詞任一行從那裡開始播；空白鍵播放 / 暫停；雙擊翻譯可以修改。</p>
-    </section>
+    </main>
   </div>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>

@@ -30,8 +30,8 @@ const USER_SCROLL_KEYS = new Set(["PageUp", "PageDown", "Home", "End", "ArrowUp"
 export class AutoScroller {
   /**
    * @param {object} opts
-   * @param {HTMLElement} opts.main scroll container on wide screens (window scrolls on narrow ones)
-   * @param {() => HTMLElement|null} opts.coverEl sticky element covering the top of the region
+   * @param {HTMLElement} opts.main the lyrics scroll container (falls back to window if it can't scroll)
+   * @param {() => HTMLElement|null} opts.coverEl element covering the top of the region, if any
    * @param {() => HTMLElement|null} opts.currentEl the highlighted line
    * @param {(show: boolean) => void} opts.onOffscreen show/hide the "back to current" button
    */

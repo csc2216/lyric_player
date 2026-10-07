@@ -12,6 +12,7 @@ const COMMANDS = {
   ArrowRight: "nextLine",
   KeyA: "toggleAutoScroll",
   KeyC: "centerCurrent",
+  KeyB: "toggleSidebar",
   KeyS: "calibrateKey",
   "Shift+KeyS": "calibrateToggle",
   BracketLeft: "offsetDown",
@@ -22,7 +23,7 @@ const COMMANDS = {
 };
 // Fallback by character for keyboards that don't report KeyboardEvent.code.
 const KEY_TO_CODE = {
-  " ": "Space", a: "KeyA", A: "KeyA", c: "KeyC", C: "KeyC", s: "KeyS", S: "KeyS",
+  " ": "Space", a: "KeyA", A: "KeyA", b: "KeyB", B: "KeyB", c: "KeyC", C: "KeyC", s: "KeyS", S: "KeyS",
   "[": "BracketLeft", "]": "BracketRight", "{": "BracketLeft", "}": "BracketRight",
   ArrowLeft: "ArrowLeft", ArrowRight: "ArrowRight", Enter: "Enter",
 };

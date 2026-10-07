@@ -187,6 +187,8 @@ describe("keyboard commandFor", async () => {
     assert.equal(k("BracketRight", "]"), "offsetUp");
     assert.equal(k("Enter", "Enter"), "confirm");
     assert.equal(k("KeyC", "c"), "centerCurrent");
+    assert.equal(k("KeyB", "b"), "toggleSidebar");
+    assert.equal(k("", "b"), "toggleSidebar");
   });
 
   test("Shift variants", () => {

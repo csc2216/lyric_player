@@ -21,7 +21,6 @@ export class SongBar {
     this.onDeleted = onDeleted;
     this.panel = document.getElementById("song-panel");
     this.openName = null;
-    window.addEventListener("resize", () => this.#fit());
     document.getElementById("video-button").addEventListener("click", (e) => this.#toggle("video", e));
     document.getElementById("info-button").addEventListener("click", (e) => this.#toggle("info", e));
     document.getElementById("retranslate-all-button").addEventListener("click", (e) => {
@@ -46,18 +45,9 @@ export class SongBar {
     this.openName = name;
     this.panel.replaceChildren(name === "video" ? this.#videoPanel() : this.#infoPanel());
     this.panel.hidden = false;
-    this.#fit();
+    // The center column scrolls on its own: bring the panel into view there.
+    this.panel.scrollIntoView({ block: "nearest", behavior: "smooth" });
     this.panel.querySelector("input")?.focus({ preventScroll: true });
-  }
-
-  /**
-   * The panel sits inside the sticky player block, which never scrolls out of
-   * view; keep it within the window (and scroll inside it) so its bottom stays reachable.
-   */
-  #fit() {
-    if (this.panel.hidden) return;
-    const top = this.panel.getBoundingClientRect().top;
-    this.panel.style.maxHeight = `${Math.max(140, window.innerHeight - top - 12)}px`;
   }
 
   async #patch(patch, change, okText) {
