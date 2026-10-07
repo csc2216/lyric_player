@@ -19,7 +19,7 @@
 | 後端 | FastAPI + uvicorn | 同時 serve API 和靜態前端 |
 | YouTube 搜尋 | `yt-dlp`（`ytsearchN:` + `extract_flat`） | 不需要 API key、沒有配額 |
 | 歌詞 | LRCLIB API（`https://lrclib.net/api`） | 免費、有時間戳 |
-| 翻譯 | `anthropic` Python SDK | |
+| 翻譯 | `claude -p` CLI（預設，走 Claude 訂閱）或 `anthropic` Python SDK（API key） | 使用者沒有 API key |
 | HTTP client | `httpx` | |
 | 儲存 | 磁碟上的 JSON 檔，依歌手分資料夾 | 人類可讀、可用 git 版控 |
 | 前端 | 原生 HTML + CSS + ES modules，**無 build step** | 簡單、好改 |
@@ -29,7 +29,8 @@
 設定放 `.env`（用 `python-dotenv` 或 pydantic-settings 讀）：
 
 ```
-ANTHROPIC_API_KEY=...
+TRANSLATOR_BACKEND=claude_cli   # 或 api
+ANTHROPIC_API_KEY=               # 只有 api 後端需要
 TRANSLATE_MODEL=claude-sonnet-5-5
 LIBRARY_DIR=./library
 PORT=8765
@@ -141,10 +142,14 @@ lyric-player/
   - 標題含歌名、頻道含歌手或為 `- Topic` 頻道 / 官方頻道：加分。
   - 標題含 `cover`、`dance practice`、`live`、`lyrics`、`sped up`、`reaction`：扣分。
 - 設定項 `video_preference`: `"sync"`（預設，選時長最接近的，常常是 audio / Topic 版）或 `"mv"`（偏好 MV，時間可能需要 offset 調整）。
+- 先用 LRCLIB 的歌手/歌名搜尋；若最佳影片與 LRCLIB duration 差超過 5 秒（或沒結果），再用使用者原始輸入搜一次，兩次結果合併（依 video id 去重）後重新打分，取最高者。
 - 前 5 名存到 `alternatives`，UI 可以換影片。
 
 ### 4. 翻譯（`services/translator.py`）
 
+- 兩種後端，由 `TRANSLATOR_BACKEND` 切換，介面都是 `complete(system, user) -> str`；去重、驗證、重試邏輯共用：
+  - `claude_cli`（預設）：subprocess 呼叫 `claude -p --output-format json --model <TRANSLATE_MODEL> --system-prompt <prompt> --tools "" --no-session-persistence --strict-mcp-config --setting-sources ""`，user message 走 stdin，取回應 JSON 的 `result`。timeout 120 秒；子程序環境變數移除 `ANTHROPIC_API_KEY`（確保走訂閱額度）；cwd 用空的暫存目錄（避免讀到 CLAUDE.md）；不可用 `--bare`（它不讀 OAuth 登入）。找不到 `claude` 指令、逾時、`is_error: true` 都轉成清楚的錯誤訊息。
+  - `api`：`anthropic` SDK，需要 `ANTHROPIC_API_KEY`。
 - 去重：重複的行（副歌）只翻一次，保證一致又省錢。
 - 送給模型：完整歌詞（給上下文）+ 帶 id 的去重行清單。
 - 要求回傳純 JSON：`{"translations": [{"id": 0, "tr": "..."}]}`。
@@ -243,6 +248,6 @@ lyric-player/
 
 ## 其他注意
 
-- LRCLIB / yt-dlp / Anthropic 呼叫都要有 timeout 和清楚的錯誤訊息回到前端。
+- LRCLIB / yt-dlp / 翻譯（claude CLI 或 Anthropic API）呼叫都要有 timeout 和清楚的錯誤訊息回到前端。
 - yt-dlp 偶爾會因 YouTube 改版壞掉：README 註明 `uv lock --upgrade-package yt-dlp`。
 - 不要把 API key 傳到前端。

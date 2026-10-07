@@ -1,8 +1,18 @@
-"""Line-by-line lyric translation to Taiwanese Traditional Chinese via Anthropic."""
+"""Line-by-line lyric translation to Taiwanese Traditional Chinese.
+
+Two backends share the same dedupe / validation / retry logic:
+- claude_cli: `claude -p` subprocess, uses the Claude subscription login
+- api: Anthropic Python SDK, uses ANTHROPIC_API_KEY
+"""
 
 import json
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 from dataclasses import dataclass, field
+from typing import Protocol
 
 from app.config import settings
 
@@ -10,6 +20,7 @@ from app.config import settings
 PROMPT_VERSION = 1
 MAX_TOKENS = 8000
 TIMEOUT = 120.0
+CLI_TIMEOUT = 120.0
 
 SYSTEM_PROMPT = """你是專業的歌詞譯者，負責把歌詞逐行翻譯成台灣慣用的繁體中文。
 
@@ -95,36 +106,123 @@ def parse_response(text: str) -> dict[int, str]:
     return result
 
 
-def make_client():
-    import anthropic
+class Backend(Protocol):
+    """Sends one system + user message to a model and returns the reply text."""
 
-    if not settings.anthropic_api_key:
-        raise TranslatorError("未設定 ANTHROPIC_API_KEY（請在 .env 設定）")
-    return anthropic.Anthropic(api_key=settings.anthropic_api_key, timeout=TIMEOUT)
+    model: str
+
+    def complete(self, system: str, user_message: str) -> str: ...
 
 
-def _call_model(client, model: str, user_message: str) -> str:
-    import anthropic
+class ApiBackend:
+    """Anthropic API via the Python SDK (needs ANTHROPIC_API_KEY)."""
 
-    try:
-        response = client.messages.create(
-            model=model,
-            max_tokens=MAX_TOKENS,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_message}],
-        )
-    except anthropic.APITimeoutError as e:
-        raise TranslatorError("翻譯 API 逾時") from e
-    except anthropic.APIError as e:
-        raise TranslatorError(f"翻譯 API 呼叫失敗：{e}") from e
-    return "".join(block.text for block in response.content if block.type == "text")
+    def __init__(self, client=None, model: str | None = None):
+        self.model = model or settings.translate_model
+        self._client = client
+
+    def _get_client(self):
+        if self._client is None:
+            import anthropic
+
+            if not settings.anthropic_api_key:
+                raise TranslatorError(
+                    "未設定 ANTHROPIC_API_KEY（請在 .env 設定，或改用 TRANSLATOR_BACKEND=claude_cli）"
+                )
+            self._client = anthropic.Anthropic(api_key=settings.anthropic_api_key, timeout=TIMEOUT)
+        return self._client
+
+    def complete(self, system: str, user_message: str) -> str:
+        import anthropic
+
+        try:
+            response = self._get_client().messages.create(
+                model=self.model,
+                max_tokens=MAX_TOKENS,
+                system=system,
+                messages=[{"role": "user", "content": user_message}],
+            )
+        except anthropic.APITimeoutError as e:
+            raise TranslatorError("翻譯 API 逾時") from e
+        except anthropic.APIError as e:
+            raise TranslatorError(f"翻譯 API 呼叫失敗：{e}") from e
+        return "".join(block.text for block in response.content if block.type == "text")
+
+
+class ClaudeCliBackend:
+    """`claude -p` (Claude Code CLI), billed to the logged-in Claude subscription."""
+
+    def __init__(self, model: str | None = None, executable: str = "claude", timeout: float = CLI_TIMEOUT):
+        self.model = model or settings.translate_model
+        self.executable = executable
+        self.timeout = timeout
+
+    def command(self, system: str) -> list[str]:
+        return [
+            self.executable,
+            "-p",
+            "--output-format", "json",
+            "--model", self.model,
+            "--system-prompt", system,
+            "--tools", "",  # plain completion, no agent tools
+            "--no-session-persistence",
+            "--strict-mcp-config",
+            "--setting-sources", "",  # ignore user/project settings and hooks
+        ]
+
+    def complete(self, system: str, user_message: str) -> str:
+        path = shutil.which(self.executable)
+        if not path:
+            raise TranslatorError(
+                f"找不到 {self.executable} 指令：請安裝 Claude Code 並登入（claude），"
+                "或把 TRANSLATOR_BACKEND 設為 api"
+            )
+        # Without ANTHROPIC_API_KEY the CLI uses the subscription login.
+        env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+        cmd = self.command(system)
+        cmd[0] = path
+        try:
+            # Empty cwd so no CLAUDE.md gets pulled into the context.
+            with tempfile.TemporaryDirectory(prefix="lyric-translate-") as cwd:
+                proc = subprocess.run(
+                    cmd,
+                    input=user_message,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    timeout=self.timeout,
+                    env=env,
+                    cwd=cwd,
+                )
+        except subprocess.TimeoutExpired as e:
+            raise TranslatorError(f"claude CLI 逾時（{self.timeout:.0f} 秒）") from e
+        except OSError as e:
+            raise TranslatorError(f"無法執行 claude CLI：{e}") from e
+        try:
+            data = json.loads(proc.stdout)
+        except json.JSONDecodeError as e:
+            detail = (proc.stderr or proc.stdout).strip()[:300]
+            raise TranslatorError(f"claude CLI 輸出無法解析（exit {proc.returncode}）：{detail}") from e
+        if not isinstance(data, dict):
+            raise TranslatorError("claude CLI 輸出格式不符")
+        if data.get("is_error") or proc.returncode != 0:
+            raise TranslatorError(f"claude CLI 錯誤：{data.get('result') or proc.stderr.strip()[:300]}")
+        return data.get("result") or ""
+
+
+def make_backend(name: str | None = None) -> Backend:
+    name = name or settings.translator_backend
+    if name == "api":
+        return ApiBackend()
+    if name == "claude_cli":
+        return ClaudeCliBackend()
+    raise TranslatorError(f"未知的 TRANSLATOR_BACKEND：{name}（可用 claude_cli 或 api）")
 
 
 def translate(
     texts: list[str],
     line_indices: list[int] | None = None,
-    client=None,
-    model: str | None = None,
+    backend: Backend | None = None,
 ) -> TranslationResult:
     """Translate the given lines (default: all) with the whole song as context.
 
@@ -135,14 +233,13 @@ def translate(
         line_indices = list(range(len(texts)))
     if not line_indices:
         return TranslationResult({})
-    client = client or make_client()
-    model = model or settings.translate_model
+    backend = backend or make_backend()
 
     unique, id_of_line = dedupe(texts, line_indices)
     pending = dict(enumerate(unique))
     done: dict[int, str] = {}
     for _attempt in range(2):
-        reply = _call_model(client, model, build_user_message(texts, pending))
+        reply = backend.complete(SYSTEM_PROMPT, build_user_message(texts, pending))
         parsed = parse_response(reply)
         done.update({i: tr for i, tr in parsed.items() if i in pending})
         pending = {i: t for i, t in pending.items() if i not in done}

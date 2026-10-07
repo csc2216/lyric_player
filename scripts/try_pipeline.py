@@ -5,6 +5,7 @@ Usage: uv run python scripts/try_pipeline.py "歌手 - 歌名" [--lines 5] [--no
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -13,7 +14,14 @@ from app.config import settings  # noqa: E402
 from app.services.lrc_parser import build_lines  # noqa: E402
 from app.services.lrclib import LrclibClient, LrclibError  # noqa: E402
 from app.services.translator import TranslatorError, translate  # noqa: E402
-from app.services.youtube import MAX_ALTERNATIVES, YoutubeError, rank_videos, search_entries  # noqa: E402
+from app.services.youtube import (  # noqa: E402
+    MAX_ALTERNATIVES,
+    YoutubeError,
+    merge_entries,
+    needs_fallback,
+    rank_videos,
+    search_entries,
+)
 
 # LRCLIB candidates within this score of the top one count as the same song;
 # among them, pick the one whose duration best matches a YouTube video.
@@ -56,15 +64,25 @@ def main() -> int:
         and c.score >= top.score - TIE_SCORE_MARGIN
     ]
 
+    pref = settings.video_preference
+
+    def pair(entries):
+        ranked = {c.id: rank_videos(entries, c.artist_name, c.track_name, c.duration, pref) for c in tied}
+        best = max(tied, key=lambda c: ranked[c.id][0].score if ranked[c.id] else float("-inf"))
+        return best, ranked[best.id]
+
+    yt_note = ""
     try:
-        entries = search_entries(top.artist_name, top.track_name)
+        entries = search_entries(f"{top.artist_name} {top.track_name}")
+        best, ranked = pair(entries)
+        if needs_fallback(ranked, best.duration):
+            entries = merge_entries(entries, search_entries(args.query))
+            best, ranked = pair(entries)
+            yt_note = f"（LRCLIB 名稱搜尋結果時長差 > 5 秒，已加搜「{args.query}」）"
     except YoutubeError as e:
         print(f"錯誤：{e}")
-        entries = []
-    pref = settings.video_preference
-    ranked = {c.id: rank_videos(entries, c.artist_name, c.track_name, c.duration, pref) for c in tied}
-    best = max(tied, key=lambda c: ranked[c.id][0].score if ranked[c.id] else float("-inf"))
-    videos = ranked[best.id][:MAX_ALTERNATIVES]
+        best, ranked = tied[0], []
+    videos = ranked[:MAX_ALTERNATIVES]
 
     for c in candidates[:8]:
         mark = "*" if c is best else " "
@@ -85,7 +103,7 @@ def main() -> int:
         f"段落來源={result.break_source}，段落數={n_breaks + 1 if result.lines else 0}"
     )
 
-    print(f"\n== YouTube（preference={pref}，目標時長 {fmt_duration(best.duration)}）")
+    print(f"\n== YouTube（preference={pref}，目標時長 {fmt_duration(best.duration)}）{yt_note}")
     for i, v in enumerate(videos):
         mark = "*" if i == 0 else " "
         diff = (
@@ -100,12 +118,15 @@ def main() -> int:
 
     lines = result.lines
     if not args.no_translate and lines:
-        print(f"\n== 翻譯（{settings.translate_model}，全曲 {len(lines)} 行）")
+        print(f"\n== 翻譯（{settings.translator_backend} / {settings.translate_model}，全曲 {len(lines)} 行）")
+        started = time.monotonic()
         try:
             tr = translate([line.text for line in lines])
         except TranslatorError as e:
-            print(f"錯誤：{e}")
+            print(f"錯誤：{e}（{time.monotonic() - started:.1f} 秒）")
         else:
+            n_ok = len(tr.translations) - len(tr.missing)
+            print(f"   完成：{n_ok}/{len(lines)} 行，耗時 {time.monotonic() - started:.1f} 秒")
             for i, line in enumerate(lines):
                 line.tr = tr.translations.get(i, "")
             if tr.missing:

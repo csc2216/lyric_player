@@ -12,6 +12,9 @@ VideoPreference = Literal["sync", "mv"]
 SEARCH_COUNT = 8
 SOCKET_TIMEOUT = 15
 MAX_ALTERNATIVES = 5
+# If the best video from the LRCLIB-name search is further off than this,
+# search again with the user's original input.
+FALLBACK_DURATION_DIFF = 5.0
 
 # Penalized title keywords (word-boundary match so "live" doesn't hit "alive").
 BAD_KEYWORDS = {
@@ -107,7 +110,28 @@ def rank_videos(
     return scored
 
 
-def search_entries(artist: str, title: str, count: int = SEARCH_COUNT) -> list[dict]:
+def needs_fallback(ranked: list[ScoredVideo], target_duration: float | None) -> bool:
+    """True when the best candidate's duration is missing or > FALLBACK_DURATION_DIFF off."""
+    if not ranked:
+        return True
+    best = ranked[0].video
+    if target_duration is None:
+        return False
+    return best.duration is None or abs(best.duration - target_duration) > FALLBACK_DURATION_DIFF
+
+
+def merge_entries(*lists: list[dict]) -> list[dict]:
+    """Concatenate search results, dropping repeated video ids."""
+    seen, merged = set(), []
+    for entries in lists:
+        for e in entries:
+            if e.get("id") and e["id"] not in seen:
+                seen.add(e["id"])
+                merged.append(e)
+    return merged
+
+
+def search_entries(query: str, count: int = SEARCH_COUNT) -> list[dict]:
     """Raw yt-dlp flat search results (network)."""
     import yt_dlp
 
@@ -118,10 +142,9 @@ def search_entries(artist: str, title: str, count: int = SEARCH_COUNT) -> list[d
         "skip_download": True,
         "socket_timeout": SOCKET_TIMEOUT,
     }
-    query = f"ytsearch{count}:{artist} {title}".strip()
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(query, download=False)
+            info = ydl.extract_info(f"ytsearch{count}:{query.strip()}", download=False)
     except Exception as e:  # yt-dlp raises many types; surface one clear error
         raise YoutubeError(f"YouTube 搜尋失敗：{e}") from e
     return list((info or {}).get("entries") or [])
@@ -132,7 +155,17 @@ def find_videos(
     title: str,
     target_duration: float | None,
     preference: VideoPreference = "sync",
+    fallback_query: str | None = None,
 ) -> list[ScoredVideo]:
-    """Search YouTube and return ranked candidates (top MAX_ALTERNATIVES)."""
-    entries = search_entries(artist, title)
-    return rank_videos(entries, artist, title, target_duration, preference)[:MAX_ALTERNATIVES]
+    """Search YouTube and return ranked candidates (top MAX_ALTERNATIVES).
+
+    Searches with the LRCLIB artist/title first; if the best match is more than
+    FALLBACK_DURATION_DIFF seconds off, also searches `fallback_query` (the
+    user's raw input) and ranks both result sets together.
+    """
+    entries = search_entries(f"{artist} {title}")
+    ranked = rank_videos(entries, artist, title, target_duration, preference)
+    if fallback_query and fallback_query.strip() != f"{artist} {title}" and needs_fallback(ranked, target_duration):
+        entries = merge_entries(entries, search_entries(fallback_query))
+        ranked = rank_videos(entries, artist, title, target_duration, preference)
+    return ranked[:MAX_ALTERNATIVES]
