@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     # server's (non-login) shell can't find `claude`, e.g. npm/nvm installs.
     claude_cli_path: str = "claude"
     anthropic_api_key: str = ""
-    translate_model: str = "claude-sonnet-5-5"
+    translate_model: str = "claude-opus-5-5"
     library_dir: Path = Path("./library")
     port: int = 8765
     video_preference: Literal["sync", "mv"] = "sync"

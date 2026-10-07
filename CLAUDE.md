@@ -35,7 +35,7 @@ uv、FastAPI + uvicorn（同時 serve API 與靜態前端）、yt-dlp（YouTube 
 TRANSLATOR_BACKEND=claude_cli   # 或 api
 CLAUDE_CLI_PATH=claude          # 找不到 claude 時填完整路徑
 ANTHROPIC_API_KEY=               # 只有 api 後端需要
-TRANSLATE_MODEL=claude-sonnet-5-5
+TRANSLATE_MODEL=claude-opus-5-5
 LIBRARY_DIR=./library
 PORT=8765
 ```

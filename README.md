@@ -45,7 +45,7 @@
 | `TRANSLATOR_BACKEND` | `claude_cli` | `claude_cli`：呼叫 `claude -p`，用訂閱額度；`api`：用 Anthropic API key |
 | `CLAUDE_CLI_PATH` | `claude` | 伺服器找不到 `claude` 時填完整路徑（見常見問題） |
 | `ANTHROPIC_API_KEY` | 空 | 只有 `TRANSLATOR_BACKEND=api` 需要 |
-| `TRANSLATE_MODEL` | `claude-sonnet-5-5` | 翻譯用的模型 |
+| `TRANSLATE_MODEL` | `claude-opus-5-5` | 翻譯用的模型 |
 | `LIBRARY_DIR` | `./library` | 歌曲庫資料夾（JSON 檔，可自行備份） |
 | `VIDEO_PREFERENCE` | `sync` | `sync`：選時長最接近的影片（時間軸最準）；`mv`：偏好 MV |
 | `OWNER_LOGIN` | 空 | 你的 Tailscale 登入帳號（email）；用這個帳號的裝置有完整權限 |

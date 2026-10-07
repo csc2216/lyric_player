@@ -23,7 +23,7 @@
   "lines": [
     { "t": 12.34, "text": "原文", "tr": "翻譯", "break_before": false }
   ],
-  "translator": { "model": "claude-sonnet-5-5", "prompt_version": 1 }
+  "translator": { "model": "claude-opus-5-5", "prompt_version": 1 }
 }
 ```
 
