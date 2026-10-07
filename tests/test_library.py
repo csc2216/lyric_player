@@ -47,6 +47,16 @@ def test_save_and_get(lib):
     assert lib.get_song("test-artist", "paper-moon") == saved
 
 
+def test_saved_file_uses_umask_permissions(lib):
+    import os
+
+    lib.save_song(song())
+    umask = os.umask(0)
+    os.umask(umask)
+    mode = (lib.root / "test-artist" / "paper-moon.json").stat().st_mode & 0o777
+    assert mode == 0o666 & ~umask
+
+
 def test_no_temp_files_left(lib):
     lib.save_song(song())
     assert [p.name for p in (lib.root / "test-artist").iterdir()] == ["paper-moon.json"]

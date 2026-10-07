@@ -54,7 +54,9 @@ lyric-player/
 │   │   ├── lrc_parser.py  # LRC 解析 + 段落對齊
 │   │   ├── youtube.py     # yt-dlp 搜尋 + 打分
 │   │   ├── translator.py  # LLM 翻譯
-│   │   └── library.py     # 讀寫 JSON、建 tree
+│   │   ├── library.py     # 讀寫 JSON、建 tree
+│   │   ├── pipeline.py    # resolve / build / patch / retranslate 流程（routes 只做轉接）
+│   │   └── text.py        # 共用文字正規化、相似度
 │   └── api/
 │       └── routes.py
 ├── static/
@@ -180,6 +182,16 @@ lyric-player/
 | DELETE | `/api/songs/{a}/{t}` | 刪除 |
 
 `auto_ok = true` 的條件：第一名 LRCLIB 候選有 synced 歌詞、且明顯領先第二名、且最佳影片時長差 ≤ 3 秒。
+
+實作細節（M2）：
+- LRCLIB 常有同一首歌的多筆重複上傳（同分但 duration 不同）。「同分」= 分數差 ≤ 0.02 且歌名/歌手相似度 ≥ 0.85（同一首歌）；在同分群組中選「最佳 YouTube 影片分數最高」的那筆（即時長最吻合）。
+- 「明顯領先」只跟**不同歌**比（同一首歌的其他版本不算對手），領先 ≥ 0.1；結果裡全是同一首歌時視為領先。
+- `/resolve` 回傳 `{query, auto_ok, reason, checks, candidates}`；`candidates[0]` 是選中的，每個候選帶 `video`（最佳影片 + `duration_diff`）、`preview`（前 3 行）、`line_count`。`reason` 是給人看的除錯字串（例如 `auto: all 8 results are the same song; tie broken by duration (5 tied, picked 253s); video +0.7s`），`checks` 是結構化版本。
+- resolve 的影片排名暫存在記憶體（依 lrclib_id），`/build` 用它補影片資訊與 alternatives；沒命中（例如 server 重啟過）就重搜。
+- 歌曲相關 endpoint（GET/PATCH/build/retranslate）都回傳 `{artist_slug, title_slug, song, created?, missing_translations}`，改名後前端用回傳的新 slug。
+- 所有 route 都是一般 `def`（FastAPI 丟 threadpool），因為底層 httpx / yt-dlp / `claude -p` / 檔案 IO 全是同步的。
+- 同一首歌的 build / patch / retranslate 用 per-song lock 串行化；build 時若等過別人的鎖且歌已存在，直接回傳既有結果（即使 `force=true`），連按兩次不會翻兩次。
+- 錯誤對應：找不到 404、同名衝突 409、參數錯誤 400、LRCLIB / YouTube / 翻譯失敗 502，body 皆為 `{"detail": "中文訊息"}`。
 前端在 `auto_ok` 時直接呼叫 `/build`（全自動）；否則顯示候選讓我選。
 
 ## 前端

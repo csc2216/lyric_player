@@ -43,7 +43,8 @@ class Library:
     def __init__(self, root: Path):
         self.root = Path(root)
 
-    def _path(self, artist_slug: str, title_slug: str) -> Path:
+    def song_path(self, artist_slug: str, title_slug: str) -> Path:
+        """Validated file path for a song (raises SongNotFound on bad slugs)."""
         for part in (artist_slug, title_slug):
             if not part or part.startswith(".") or _ILLEGAL_RE.search(part):
                 raise SongNotFound(f"無效的路徑：{artist_slug}/{title_slug}")
@@ -53,7 +54,7 @@ class Library:
         return path
 
     def path_for(self, song: Song) -> Path:
-        return self._path(slugify(song.artist), slugify(song.title))
+        return self.song_path(slugify(song.artist), slugify(song.title))
 
     def _read(self, path: Path) -> Song:
         return Song.model_validate_json(path.read_text(encoding="utf-8"))
@@ -63,6 +64,10 @@ class Library:
         data = json.dumps(song.model_dump(mode="json"), ensure_ascii=False, indent=2)
         fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".tmp-", suffix=".json")
         try:
+            # mkstemp creates 0600; use normal file permissions (respecting umask)
+            umask = os.umask(0)
+            os.umask(umask)
+            os.fchmod(fd, 0o666 & ~umask)
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(data + "\n")
             os.replace(tmp, path)
@@ -96,7 +101,7 @@ class Library:
         return tree
 
     def get_song(self, artist_slug: str, title_slug: str) -> Song:
-        path = self._path(artist_slug, title_slug)
+        path = self.song_path(artist_slug, title_slug)
         if not path.is_file():
             raise SongNotFound(f"找不到歌曲：{artist_slug}/{title_slug}")
         return self._read(path)
@@ -123,7 +128,7 @@ class Library:
 
     def update_song(self, artist_slug: str, title_slug: str, song: Song) -> Song:
         """Overwrite an existing song in place (artist/title must keep the same slugs)."""
-        path = self._path(artist_slug, title_slug)
+        path = self.song_path(artist_slug, title_slug)
         if path != self.path_for(song):
             raise LibraryError("改歌手或歌名請用 move_song")
         if not path.is_file():
@@ -133,7 +138,7 @@ class Library:
         return song
 
     def delete_song(self, artist_slug: str, title_slug: str) -> None:
-        path = self._path(artist_slug, title_slug)
+        path = self.song_path(artist_slug, title_slug)
         if not path.is_file():
             raise SongNotFound(f"找不到歌曲：{artist_slug}/{title_slug}")
         path.unlink()
@@ -147,7 +152,7 @@ class Library:
         title: str | None = None,
     ) -> Song:
         """Rename artist and/or title, moving the file; empty folders are removed."""
-        old_path = self._path(artist_slug, title_slug)
+        old_path = self.song_path(artist_slug, title_slug)
         song = self.get_song(artist_slug, title_slug)
         song = song.model_copy(
             update={"artist": artist or song.artist, "title": title or song.title, "updated_at": utcnow()}

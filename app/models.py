@@ -82,3 +82,85 @@ class LrclibCandidate(BaseModel):
     @property
     def has_synced(self) -> bool:
         return bool(self.synced_lyrics and self.synced_lyrics.strip())
+
+
+# ---- API schemas ----------------------------------------------------------
+
+
+class ResolveRequest(BaseModel):
+    query: str = Field(min_length=1)
+
+
+class VideoMatch(YoutubeVideo):
+    score: float
+    # video duration - LRCLIB duration (seconds), None if either is unknown
+    duration_diff: float | None = None
+
+
+class ResolveCandidate(BaseModel):
+    id: int
+    track_name: str
+    artist_name: str
+    album_name: str | None = None
+    duration: float | None = None
+    synced: bool
+    duration_ok: bool
+    score: float
+    line_count: int
+    preview: list[str]
+    video: VideoMatch | None = None
+
+
+class ResolveChecks(BaseModel):
+    synced: bool
+    # score lead of the pick over the best *different* song (None = no other song)
+    lead: float | None
+    competitor: str | None
+    video_diff: float | None
+    tie_size: int
+    tie_broken_by_duration: bool
+    youtube_fallback: bool
+
+
+class ResolveResponse(BaseModel):
+    query: str
+    auto_ok: bool
+    reason: str
+    checks: ResolveChecks | None = None
+    # candidates[0] is the pick
+    candidates: list[ResolveCandidate]
+
+
+class BuildRequest(BaseModel):
+    lrclib_id: int
+    video_id: str
+    force: bool = False
+
+
+class SongResponse(BaseModel):
+    artist_slug: str
+    title_slug: str
+    song: Song
+    # build: False when an existing song was returned instead of building
+    created: bool | None = None
+    # line indices left without translation after the retry
+    missing_translations: list[int] = Field(default_factory=list)
+
+
+class LinePatch(BaseModel):
+    index: int
+    tr: str | None = None
+    t: float | None = None  # send null explicitly to clear
+
+
+class SongPatch(BaseModel):
+    offset_ms: int | None = None
+    video_id: str | None = None
+    artist: str | None = Field(default=None, min_length=1)
+    title: str | None = Field(default=None, min_length=1)
+    synced: bool | None = None
+    lines: list[LinePatch] | None = None
+
+
+class RetranslateRequest(BaseModel):
+    line_indices: list[int] | None = None
