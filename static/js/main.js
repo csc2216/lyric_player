@@ -8,9 +8,17 @@ import { PLAYER_ERRORS, Player } from "./player.js";
 import { AutoScroller } from "./scroll.js";
 import { loadSettings, normalizeSettings, saveSettings } from "./settings.js";
 import { SongBar } from "./songbar.js";
+import { Tapper } from "./tapper.js";
 import { formatTime } from "./sync.js";
 import { status, toast } from "./ui.js";
-import { OFFSET_STEP_MS, clampOffset, formatOffset, formatOffsetSeconds } from "./util.js";
+import {
+  OFFSET_STEP_MS,
+  SWITCHABLE_PLAYER_ERRORS,
+  clampOffset,
+  formatOffset,
+  formatOffsetSeconds,
+  pickNextVideo,
+} from "./util.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -23,8 +31,7 @@ const state = {
 
 const player = new Player("player", {
   onPlayingChange: (playing) => (playing ? loop.start() : loop.stop()),
-  onError: (code) =>
-    status.set("error", `影片無法播放：${PLAYER_ERRORS[code] ?? `錯誤碼 ${code}`}。可以按「換影片」選別的。`),
+  onError: (code) => handlePlayerError(code),
 });
 
 const lyrics = new LyricsView($("lyrics"), {
@@ -41,7 +48,9 @@ const lyrics = new LyricsView($("lyrics"), {
     }
   },
   onRetranslate: retranslateLine,
-  onSelectTarget: (index) => calibrator.select(index),
+  onSelectTarget: (index) => {
+    if (calibrator.active) calibrator.select(index);
+  },
 });
 
 const loop = new SyncLoop(
@@ -233,6 +242,63 @@ const calibrator = new Calibrator({
   },
 });
 
+const tapper = new Tapper({
+  lyrics,
+  player,
+  scroller,
+  song: () => state.current?.song ?? null,
+  save: async (lines) => {
+    const cur = state.current;
+    try {
+      applyLinesUpdate(await api.patchSong(cur.artist_slug, cur.title_slug, { synced: true, lines }));
+      return true;
+    } catch (err) {
+      toast(`打點結果存檔失敗：${err.message}`, "error", 6000);
+      return false;
+    }
+  },
+  onEnter: () => {
+    songBar.close();
+    setSettingsOpen(false);
+  },
+});
+
+// ---- video can't be embedded / doesn't exist: try the next alternative ------
+
+let triedVideos = new Set();
+let switchingVideo = false;
+
+async function handlePlayerError(code) {
+  const cur = state.current;
+  const reason = PLAYER_ERRORS[code] ?? `錯誤碼 ${code}`;
+  if (!cur?.song.youtube) return;
+  if (!SWITCHABLE_PLAYER_ERRORS.has(code)) {
+    status.set("error", `影片無法播放：${reason}。可以按「換影片」選別的。`);
+    return;
+  }
+  if (switchingVideo) return;
+  triedVideos.add(cur.song.youtube.video_id);
+  const next = pickNextVideo(cur.song.youtube, triedVideos);
+  if (!next) {
+    status.set("error", `影片無法播放（${reason}），候選影片也都不行。請在「換影片」貼上其他 YouTube 網址。`);
+    songBar.open("video");
+    return;
+  }
+  switchingVideo = true;
+  try {
+    const res = await api.patchSong(cur.artist_slug, cur.title_slug, { video_id: next.video_id });
+    if (state.current?.song !== cur.song) return; // switched songs meanwhile
+    state.current = res;
+    showHeading();
+    status.set("info", `原影片無法播放（${reason}），已自動換成：${next.title || next.video_id}`);
+    await player.load(next.video_id);
+  } catch (err) {
+    status.set("error", `影片無法播放，自動換片也失敗：${err.message}`);
+  } finally {
+    switchingVideo = false;
+  }
+}
+
 $("offset-minus").addEventListener("click", (e) => {
   e.currentTarget.blur();
   nudgeOffset(-OFFSET_STEP_MS);
@@ -245,6 +311,7 @@ $("offset-plus").addEventListener("click", (e) => {
 // ---- keyboard -------------------------------------------------------------
 
 function onCommand(command) {
+  if (tapper.active) return onTapCommand(command);
   const calibrating = calibrator.active;
   const synced = Boolean(state.current?.song.synced);
   switch (command) {
@@ -292,15 +359,48 @@ function onCommand(command) {
   }
 }
 
+/** While tap-syncing: S / Enter tap, Backspace goes back; seeking and offset keys are off. */
+function onTapCommand(command) {
+  switch (command) {
+    case "togglePlay":
+      player.togglePlay();
+      return true;
+    case "calibrateKey":
+    case "confirm":
+      tapper.tap();
+      return true;
+    case "back":
+      tapper.back();
+      return true;
+    case "prevLine":
+    case "nextLine":
+    case "offsetDown":
+    case "offsetUp":
+    case "offsetDownBig":
+    case "offsetUpBig":
+    case "calibrateToggle":
+      return true; // swallowed
+    case "toggleSidebar":
+      toggleSidebar();
+      return true;
+    case "toggleAutoScroll":
+    case "centerCurrent":
+      return true;
+    default:
+      return false;
+  }
+}
+
 installKeyboard(onCommand, () => {
   if (videoExpanded()) return setVideoExpanded(false); // one thing per Esc
+  if (tapper.active) return tapper.cancel();
   if (calibrator.active) calibrator.cancel();
   setSettingsOpen(false);
   songBar.close();
 });
 
 // Handle for poking at things from the browser console.
-window.lyricPlayer = { player, lyrics, scroller, state, calibrator };
+window.lyricPlayer = { player, lyrics, scroller, state, calibrator, tapper, handlePlayerError };
 
 // ---- library tree -----------------------------------------------------------
 
@@ -346,12 +446,15 @@ function showHeading() {
   $("song-meta").textContent = meta.join(" · ");
   document.title = `${song.title} – 歌詞播放器`;
   showOffset();
+  // calibration needs timestamps; tap-sync is for songs without them
+  $("calibrate-button").hidden = !song.synced;
+  $("tap-button").hidden = song.synced;
 }
 
 function showNotice() {
   const song = state.current?.song;
   const notes = [];
-  if (song && !song.synced) notes.push("這首歌沒有同步時間，無法點行跳播（之後會加入手動打點同步）。");
+  if (song && !song.synced) notes.push("這首歌沒有同步時間：按「打點同步」，跟著歌在每行開始時按 Enter，就能點行跳播。");
   if (song?.auto_offset_ms && song.offset_ms === song.auto_offset_ms) {
     notes.push(`已依時長差自動設定 offset ${formatOffsetSeconds(song.auto_offset_ms)}，不準可用「校準時間」修正。`);
   }
@@ -361,7 +464,9 @@ function showNotice() {
 
 /** Display a song (from GET/build). */
 function showSong(data) {
-  calibrator.reset(); // unsaved calibration belongs to the previous song
+  calibrator.reset(); // unsaved calibration / taps belong to the previous song
+  tapper.reset();
+  triedVideos = new Set();
   state.current = data;
   const { song } = data;
   songBar.close();
@@ -379,6 +484,7 @@ function showSong(data) {
 
 function showEmpty() {
   calibrator.reset();
+  tapper.reset();
   state.current = null;
   player.stop();
   lyrics.clear();
@@ -401,6 +507,8 @@ const songBar = new SongBar({
   beforeChange: flushOffset,
   onUpdated: (res, change) => {
     calibrator.cancel();
+    tapper.reset();
+    if (change === "lines") return applyLinesUpdate(res);
     state.current = res;
     showHeading();
     showNotice();
@@ -409,9 +517,6 @@ const songBar = new SongBar({
     } else if (change === "info") {
       history.replaceState(null, "", songHash(res.artist_slug, res.title_slug));
       refreshTree().then(() => tree.setCurrent(res.artist_slug, res.title_slug));
-    } else if (change === "lines") {
-      lyrics.render(res.song); // keeps scroll position; restore the highlight
-      lyrics.update(player.currentTime());
     }
   },
   onDeleted: async () => {
@@ -419,6 +524,15 @@ const songBar = new SongBar({
     await refreshTree();
   },
 });
+
+/** Server returned the song with new line data (retranslate all / tap-sync). */
+function applyLinesUpdate(res) {
+  state.current = res;
+  showHeading();
+  showNotice();
+  lyrics.render(res.song); // keeps scroll position; restore the highlight
+  lyrics.update(player.currentTime());
+}
 
 // ---- create flow ------------------------------------------------------------
 

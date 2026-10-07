@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -37,6 +38,18 @@ async def handle_known_error(request: Request, exc: Exception) -> JSONResponse:
 
 for cls, _ in ERROR_STATUS:
     app.add_exception_handler(cls, handle_known_error)
+
+log = logging.getLogger("lyric_player")
+
+
+@app.exception_handler(Exception)
+async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
+    """Anything unplanned still reaches the UI as a readable message (traceback goes to the server log)."""
+    log.exception("unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        {"detail": f"伺服器內部錯誤（{type(exc).__name__}: {exc}），詳細訊息請看伺服器視窗"},
+        status_code=500,
+    )
 
 # Mounted last so /api routes take precedence; html=True serves index.html at "/".
 app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")

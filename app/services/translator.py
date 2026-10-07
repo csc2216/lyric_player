@@ -152,9 +152,9 @@ class ApiBackend:
 class ClaudeCliBackend:
     """`claude -p` (Claude Code CLI), billed to the logged-in Claude subscription."""
 
-    def __init__(self, model: str | None = None, executable: str = "claude", timeout: float = CLI_TIMEOUT):
+    def __init__(self, model: str | None = None, executable: str | None = None, timeout: float = CLI_TIMEOUT):
         self.model = model or settings.translate_model
-        self.executable = executable
+        self.executable = executable or settings.claude_cli_path
         self.timeout = timeout
 
     def command(self, system: str) -> list[str]:
@@ -174,7 +174,8 @@ class ClaudeCliBackend:
         path = shutil.which(self.executable)
         if not path:
             raise TranslatorError(
-                f"找不到 {self.executable} 指令：請安裝 Claude Code 並登入（claude），"
+                f"找不到 {self.executable} 指令：請在 WSL 安裝 Claude Code 並登入（執行一次 claude）；"
+                "已安裝的話，在 .env 設定 CLAUDE_CLI_PATH 為完整路徑（在終端機執行 which claude 查詢），"
                 "或把 TRANSLATOR_BACKEND 設為 api"
             )
         # Without ANTHROPIC_API_KEY the CLI uses the subscription login.

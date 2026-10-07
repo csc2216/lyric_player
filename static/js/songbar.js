@@ -42,6 +42,11 @@ export class SongBar {
   #toggle(name, e) {
     e.currentTarget.blur();
     if (this.openName === name) return this.close();
+    this.open(name);
+  }
+
+  /** Open a panel: "video" | "info". */
+  open(name) {
     this.openName = name;
     this.panel.replaceChildren(name === "video" ? this.#videoPanel() : this.#infoPanel());
     this.panel.hidden = false;

@@ -137,6 +137,14 @@ export class LyricsView {
     this.lineEls[index]?.classList.add("calib-target");
   }
 
+  /** Tap-sync: lines before `index` are done, `index` is next (-1 clears). */
+  setTapProgress(index) {
+    this.lineEls.forEach((lineEl, i) => {
+      lineEl.classList.toggle("tapped", index >= 0 && i < index);
+      lineEl.classList.toggle("tap-next", i === index);
+    });
+  }
+
   setLineBusy(index, busy) {
     this.lineEls[index]?.classList.toggle("busy", busy);
   }

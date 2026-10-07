@@ -992,3 +992,29 @@ body.video-expanded .expand-close {
   border-color: rgb(255 255 255 / 0.6);
   color: inherit;
 }
+
+/* ---- M5: tap-sync ---- */
+
+#tap-button.on {
+  background: var(--accent);
+  color: #fff;
+}
+
+body.tapping .line {
+  cursor: default;
+}
+
+body.tapping .line-actions {
+  display: none;
+}
+
+.line.tapped {
+  opacity: 0.55;
+}
+
+.line.tap-next {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: var(--accent-soft);
+  opacity: 1;
+}

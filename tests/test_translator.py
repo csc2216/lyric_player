@@ -289,3 +289,19 @@ def test_make_backend_default_is_cli(monkeypatch):
 def test_make_backend_unknown():
     with pytest.raises(TranslatorError, match="TRANSLATOR_BACKEND"):
         make_backend("nope")
+
+
+def test_cli_path_from_settings(fake_cli, monkeypatch):
+    monkeypatch.setattr(translator.settings, "claude_cli_path", "/opt/claude/bin/claude")
+    seen = []
+    run = fake_cli(cli_result(reply([(0, "一"), (1, "二"), (2, "三"), (3, "四")])))
+    monkeypatch.setattr(translator.shutil, "which", lambda name: seen.append(name) or name)
+    translate(TEXTS, backend=ClaudeCliBackend(model="m"))
+    assert seen == ["/opt/claude/bin/claude"]
+    assert run.calls[0][0][0] == "/opt/claude/bin/claude"
+
+
+def test_cli_not_found_message_mentions_setting(monkeypatch):
+    monkeypatch.setattr(translator.shutil, "which", lambda name: None)
+    with pytest.raises(TranslatorError, match="CLAUDE_CLI_PATH"):
+        translate(TEXTS, backend=ClaudeCliBackend(model="m"))

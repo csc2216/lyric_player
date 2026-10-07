@@ -437,3 +437,15 @@ def test_build_shorter_video_keeps_zero_offset(env):
     env.client.post("/api/resolve", json={"query": "Paper Moon"})
     song = env.client.post("/api/build", json={"lrclib_id": 1, "video_id": "shorterxxxx"}).json()["song"]
     assert (song["offset_ms"], song["auto_offset_ms"]) == (0, None)
+
+
+def test_unexpected_error_returns_readable_500(env, monkeypatch):
+    def boom(*a, **kw):
+        raise RuntimeError("disk on fire")
+
+    monkeypatch.setattr(pipeline, "resolve", boom)
+    client = TestClient(app, raise_server_exceptions=False)
+    res = client.post("/api/resolve", json={"query": "x"})
+    assert res.status_code == 500
+    assert "RuntimeError: disk on fire" in res.json()["detail"]
+    assert "伺服器" in res.json()["detail"]

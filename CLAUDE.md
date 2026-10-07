@@ -30,6 +30,7 @@
 
 ```
 TRANSLATOR_BACKEND=claude_cli   # 或 api
+CLAUDE_CLI_PATH=claude          # 找不到 claude 時填完整路徑
 ANTHROPIC_API_KEY=               # 只有 api 後端需要
 TRANSLATE_MODEL=claude-sonnet-5-5
 LIBRARY_DIR=./library
@@ -237,11 +238,12 @@ CSS grid 三欄（不用 JS 算寬高）：
 | [ / ] | offset −/+ 100ms（顯示目前值，停止按 1 秒後 PATCH 存檔） |
 | Shift+[ / Shift+] | offset −/+ 1 秒（同上） |
 | Shift+S | 進入 / 離開校準模式 |
-| S | 校準模式中：第一下開始播放、第二下記錄時間；確認階段 = 重來 |
-| Enter | 校準確認階段：確定並存檔 |
+| S | 校準模式中：第一下開始播放、第二下記錄時間；確認階段 = 重來。打點模式中 = 記錄這一行 |
+| Enter | 校準確認階段：確定並存檔。打點模式中 = 記錄這一行 |
+| Backspace | 打點模式中：退回上一行重打 |
 | C | 把目前播放的那行捲到畫面中央（不論自動捲動是否開啟） |
 | B | 收合 / 展開左側歌曲庫 |
-| Esc | 依序：還原放大的影片 → 校準中取消（恢復原 offset）→ 關閉設定 / 換影片 / 編輯資訊面板 |
+| Esc | 依序：還原放大的影片 → 取消打點（不存）/ 校準（恢復原 offset）→ 關閉設定 / 換影片 / 編輯資訊面板 |
 
 - 「回到目前歌詞」浮動按鈕：目前行完全不在可見範圍（含被 sticky 影片蓋住）時，顯示在歌詞區右下角；點了效果同 C，回到畫面內後自動消失。
 
@@ -252,6 +254,7 @@ CSS grid 三欄（不用 JS 算寬高）：
 ### 播放器錯誤
 
 - `onError` 收到 101 / 150（禁止嵌入）或 100（影片不存在）→ 自動換 `alternatives` 下一個，並 PATCH 存回；全部失敗則顯示錯誤和「換影片」選單。
+  - 實作（M5）：本次載入歌曲期間試過的 video id 記在 `triedVideos`（換歌時清空），`util.js pickNextVideo` 挑第一個沒試過的 alternative；PATCH 後舊影片會進 alternatives 開頭，靠 `triedVideos` 避免繞回來。其他錯誤碼（2、5）只顯示訊息。
 
 ## Offset 預設值與校準模式（M4.1）
 
@@ -270,6 +273,10 @@ CSS grid 三欄（不用 JS 算寬高）：
 - `synced = false` 的歌顯示「打點同步」按鈕。
 - 進入模式：從頭播放，第一行高亮為「下一個要打點的行」，每按一次 `Enter`（或 `S`）把目前時間記為該行的 `t` 並前進一行；`Backspace` 退回上一行重打。
 - 完成後 PATCH 存 `lines[*].t`、`synced = true`。
+- 實作（M5）：「打點同步」按鈕只在 `synced = false` 時出現（「校準時間」只在 synced 時出現）。狀態機是純函式 `static/js/tapping.js`（測試 `tests/js/m5.test.mjs`），UI 在 `tapper.js`，面板在中間欄。
+  - 每一下必須晚於上一下，否則拒收並提示。`Backspace` 退回上一行，並從「上上一下的時間 − 1 秒」重播；在第一行時從頭播。
+  - 存的 `t` = 播放器時間 − `offset_ms`，取到 0.01 秒；打完最後一行自動存檔。`Esc` / 取消 = 不存。
+  - 打點中停用點行跳播、←/→、[ ]、編輯翻譯；空白鍵照常。
 
 ## 里程碑
 
@@ -291,6 +298,7 @@ CSS grid 三欄（不用 JS 算寬高）：
 
 ## 其他注意
 
-- LRCLIB / yt-dlp / 翻譯（claude CLI 或 Anthropic API）呼叫都要有 timeout 和清楚的錯誤訊息回到前端。
+- LRCLIB / yt-dlp / 翻譯（claude CLI 或 Anthropic API）呼叫都要有 timeout 和清楚的錯誤訊息回到前端。未預期的例外由 `main.py` 的 catch-all handler 轉成 500 + 中文 `detail`（traceback 只寫伺服器 log）。
+- `claude` 找不到時（例如 .bat 啟動的非互動 shell 沒有 nvm/npm 的 PATH），用 `.env` 的 `CLAUDE_CLI_PATH` 指定完整路徑。
 - yt-dlp 偶爾會因 YouTube 改版壞掉：README 註明 `uv lock --upgrade-package yt-dlp`。
 - 不要把 API key 傳到前端。

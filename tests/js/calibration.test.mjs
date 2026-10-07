@@ -188,6 +188,7 @@ describe("keyboard commandFor", async () => {
     assert.equal(k("Enter", "Enter"), "confirm");
     assert.equal(k("KeyC", "c"), "centerCurrent");
     assert.equal(k("KeyB", "b"), "toggleSidebar");
+    assert.equal(k("Backspace", "Backspace"), "back");
     assert.equal(k("", "b"), "toggleSidebar");
   });
 

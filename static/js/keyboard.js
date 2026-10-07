@@ -20,12 +20,13 @@ const COMMANDS = {
   "Shift+BracketLeft": "offsetDownBig",
   "Shift+BracketRight": "offsetUpBig",
   Enter: "confirm",
+  Backspace: "back",
 };
 // Fallback by character for keyboards that don't report KeyboardEvent.code.
 const KEY_TO_CODE = {
   " ": "Space", a: "KeyA", A: "KeyA", b: "KeyB", B: "KeyB", c: "KeyC", C: "KeyC", s: "KeyS", S: "KeyS",
   "[": "BracketLeft", "]": "BracketRight", "{": "BracketLeft", "}": "BracketRight",
-  ArrowLeft: "ArrowLeft", ArrowRight: "ArrowRight", Enter: "Enter",
+  ArrowLeft: "ArrowLeft", ArrowRight: "ArrowRight", Enter: "Enter", Backspace: "Backspace",
 };
 
 /** Command name for a keydown, or null. Exported for clarity; uses only event fields. */

@@ -56,3 +56,14 @@ export function formatOffsetSeconds(ms) {
   const s = (Math.abs(ms) / 1000).toFixed(1).replace(/\.0$/, "");
   return `${ms > 0 ? "+" : "−"}${s} 秒`;
 }
+
+/** YouTube player error codes that mean "this video can't be played here": try another one. */
+export const SWITCHABLE_PLAYER_ERRORS = new Set([100, 101, 150]);
+
+/** Next alternative video not tried yet (alternatives are in ranking order), or null. */
+export function pickNextVideo(youtube, tried) {
+  for (const video of youtube?.alternatives ?? []) {
+    if (!tried.has(video.video_id)) return video;
+  }
+  return null;
+}
