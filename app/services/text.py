@@ -49,3 +49,15 @@ def similarity(a: str, b: str) -> float:
         # "Song" vs "Song (Remix)": close, but below an exact match.
         ratio = max(ratio, 0.85)
     return ratio
+
+
+def non_latin_ratio(text: str) -> float:
+    """Share of letters that are not Latin script (Hangul, kana, CJK, ...). 0 if no letters.
+
+    Used to spot romanized uploads ("Sesang-ui moseori ...") of non-Latin lyrics.
+    """
+    letters = [ch for ch in unicodedata.normalize("NFKC", text) if unicodedata.category(ch)[0] == "L"]
+    if not letters:
+        return 0.0
+    latin = sum(1 for ch in letters if unicodedata.name(ch, "").startswith("LATIN"))
+    return (len(letters) - latin) / len(letters)

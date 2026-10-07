@@ -68,6 +68,8 @@ class LrclibCandidate(BaseModel):
     score: float = 0.0
     # False when the last synced timestamp is past `duration` (bad metadata).
     duration_ok: bool = True
+    # Latin-only lyrics while a native-script upload of the same song exists.
+    romanized: bool = False
 
     @classmethod
     def from_api(cls, data: dict) -> "LrclibCandidate":
@@ -108,6 +110,7 @@ class ResolveCandidate(BaseModel):
     duration: float | None = None
     synced: bool
     duration_ok: bool
+    romanized: bool = False
     score: float
     line_count: int
     preview: list[str]

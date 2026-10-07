@@ -119,6 +119,7 @@ def _to_resolve_candidate(c: LrclibCandidate, ranked: list[ScoredVideo]) -> Reso
         duration=c.duration,
         synced=c.has_synced,
         duration_ok=c.duration_ok,
+        romanized=c.romanized,
         score=c.score,
         line_count=len(lines),
         preview=[line.text for line in lines[:PREVIEW_LINES]],
@@ -137,7 +138,7 @@ def pick_candidate(
     tied = [
         c
         for c in candidates
-        if (c.has_synced, c.duration_ok) == (top.has_synced, top.duration_ok)
+        if (c.has_synced, c.romanized, c.duration_ok) == (top.has_synced, top.romanized, top.duration_ok)
         and c.score >= top.score - TIE_SCORE_MARGIN
         and same_song(c, top)  # different songs can tie on score; never swap to one
     ]
@@ -174,6 +175,8 @@ def judge_auto(
     problems = []
     if not pick.has_synced:
         problems.append("no synced lyrics")
+    if pick.romanized:
+        problems.append("lyrics are romanized")
     if lead is not None and lead < AUTO_LEAD_MARGIN:
         problems.append(f"lead {lead:.2f} over '{checks.competitor}' < {AUTO_LEAD_MARGIN}")
     if video is None:

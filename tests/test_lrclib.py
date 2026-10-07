@@ -151,3 +151,36 @@ def test_duration_shorter_than_lyrics_is_demoted():
     ranked = rank_candidates([item(1, 170.0), item(2, 214.0), item(3, 200.5)], "Test Artist - Paper Moon")
     assert [c.id for c in ranked] == [2, 3, 1]
     assert [c.duration_ok for c in ranked] == [True, True, False]
+
+
+def _lyric_item(id_, artist, track, text, duration=200.0):
+    return {
+        "id": id_, "trackName": track, "artistName": artist, "duration": duration,
+        "instrumental": False, "plainLyrics": text, "syncedLyrics": f"[00:01.00]{text}",
+    }
+
+
+def test_romanized_upload_ranks_below_native():
+    raw = [
+        _lyric_item(1, "Test Artist", "Paper Moon", "cheotjjae jul ida"),
+        _lyric_item(2, "Test Artist", "Paper Moon", "첫째 줄이다"),
+    ]
+    ranked = rank_candidates(raw, "Test Artist - Paper Moon")
+    assert [c.id for c in ranked] == [2, 1]
+    assert [c.romanized for c in ranked] == [False, True]
+
+
+def test_all_latin_is_not_romanized():
+    raw = [
+        _lyric_item(1, "Test Artist", "Paper Moon", "line one"),
+        _lyric_item(2, "Test Artist", "Paper Moon", "line one again"),
+    ]
+    assert not any(c.romanized for c in rank_candidates(raw, "Test Artist - Paper Moon"))
+
+
+def test_native_upload_of_other_song_does_not_flag():
+    raw = [
+        _lyric_item(1, "Test Artist", "Paper Moon", "line one"),
+        _lyric_item(2, "Other Artist", "Glass Sun", "첫째 줄"),
+    ]
+    assert not any(c.romanized for c in rank_candidates(raw, "paper moon"))

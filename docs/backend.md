@@ -5,7 +5,8 @@
 - `GET /api/search?q=<query>` 或 `?track_name=&artist_name=`，回傳陣列，欄位：`id, trackName, artistName, albumName, duration, instrumental, plainLyrics, syncedLyrics`。
 - 加 `User-Agent: lyric-player/0.1 (local personal use)`（LRCLIB 要求）。
 - 使用者輸入支援 `歌手 - 歌名` 或自由文字。有 ` - ` 就拆成 artist/track 查，否則用 `q`。
-- 候選排序：有 `syncedLyrics` 優先 → 標題/歌手字串相似度 → 排除 `instrumental: true`。
+- 候選排序：有 `syncedLyrics` 優先 → 非羅馬拼音 → 時長資料合理 → 標題/歌手字串相似度；排除 `instrumental: true`。
+- 羅馬拼音版（`romanized`）：歌詞非拉丁字母比例 ≤ 5%，**且**同一首歌（`same_name` 比對歌名與歌手）另有一筆 ≥ 30% 的上傳（韓文 / 日文 / 中文）。相對判定，所以英文歌不受影響。LRCLIB 常有和原文時間戳完全相同的拼音版上傳。
 
 ## 2. LRC 解析（`services/lrc_parser.py`）— 要有完整單元測試
 

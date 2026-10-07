@@ -82,3 +82,31 @@ def test_default_offset_ms(video, lyrics, expected):
     from app.services.pipeline import default_offset_ms
 
     assert default_offset_ms(video, lyrics) == expected
+
+
+def test_non_latin_ratio():
+    from app.services.text import non_latin_ratio
+
+    assert non_latin_ratio("첫째 줄") == 1.0
+    assert non_latin_ratio("line one") == 0.0
+    assert non_latin_ratio("") == 0.0
+    assert non_latin_ratio("12 :)") == 0.0
+    assert 0.3 < non_latin_ratio("골칫거리 outsider") < 0.5
+
+
+def test_romanized_upload_never_wins_duration_tie():
+    native = cand(1, "Test Artist", "Paper Moon", duration=230.0)
+    roman = cand(2, "Test Artist", "Paper Moon", duration=214.0)
+    roman.romanized = True
+    entries = [{"id": "v1", "title": "Paper Moon", "channel": "Test Artist - Topic", "duration": 214.0}]
+    pick, tied, _ = pick_candidate([native, roman], entries, "sync")
+    assert pick is native
+    assert tied == [native]
+
+
+def test_romanized_pick_is_manual():
+    roman = cand(1, "Test Artist", "Paper Moon")
+    roman.romanized = True
+    auto_ok, reason, _ = judge_auto(roman, [roman], None, [roman], False)
+    assert not auto_ok
+    assert "romanized" in reason

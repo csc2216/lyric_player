@@ -4,13 +4,17 @@ import httpx
 
 from app.models import LrclibCandidate
 from app.services.lrc_parser import parse_lrc
-from app.services.text import similarity
+from app.services.text import non_latin_ratio, same_name, similarity
 
 BASE_URL = "https://lrclib.net/api"
 USER_AGENT = "lyric-player/0.1 (local personal use)"
 TIMEOUT = 10.0
 # Allowed slack between the last lyric timestamp and the reported duration.
 DURATION_SLACK = 1.0
+# Romanized upload: lyrics at most this non-Latin, while another upload of the
+# same song is at least NATIVE_MIN_RATIO non-Latin (Hangul, kana, CJK, ...).
+ROMANIZED_MAX_RATIO = 0.05
+NATIVE_MIN_RATIO = 0.3
 
 
 class LrclibError(Exception):
@@ -48,8 +52,25 @@ def duration_consistent(c: LrclibCandidate) -> bool:
     return not entries or entries[-1].t <= c.duration + DURATION_SLACK
 
 
+def mark_romanized(candidates: list[LrclibCandidate]) -> None:
+    """Flag Latin-only uploads of songs that also have a native-script upload.
+
+    Relative on purpose: English songs (every upload Latin) are never flagged.
+    """
+    ratios = {c.id: non_latin_ratio(c.synced_lyrics or c.plain_lyrics or "") for c in candidates}
+    for c in candidates:
+        if ratios[c.id] > ROMANIZED_MAX_RATIO:
+            continue
+        c.romanized = any(
+            ratios[o.id] >= NATIVE_MIN_RATIO
+            and same_name(o.track_name, c.track_name)
+            and same_name(o.artist_name, c.artist_name)
+            for o in candidates
+        )
+
+
 def rank_candidates(raw: list[dict], query: str) -> list[LrclibCandidate]:
-    """Drop instrumentals; order by synced, plausible duration, match score. Pure function."""
+    """Drop instrumentals; order by synced, native script, plausible duration, match score. Pure function."""
     candidates = []
     for item in raw:
         c = LrclibCandidate.from_api(item)
@@ -58,7 +79,8 @@ def rank_candidates(raw: list[dict], query: str) -> list[LrclibCandidate]:
         c.score = round(score_candidate(c, query), 4)
         c.duration_ok = duration_consistent(c)
         candidates.append(c)
-    candidates.sort(key=lambda c: (c.has_synced, c.duration_ok, c.score), reverse=True)
+    mark_romanized(candidates)
+    candidates.sort(key=lambda c: (c.has_synced, not c.romanized, c.duration_ok, c.score), reverse=True)
     return candidates
 
 

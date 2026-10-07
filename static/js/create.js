@@ -76,6 +76,7 @@ export function setupCreate({ onBuilt, blockedReason = () => null, afterAttempt 
       if (c.album_name) meta.push(c.album_name);
       const metaEl = el("div", "cand-meta", meta.join(" · "));
       if (!c.duration_ok) metaEl.append(el("span", "tag warn", "時長資料可疑"));
+      if (c.romanized) metaEl.append(el("span", "tag warn", "羅馬拼音"));
       if (!c.synced) metaEl.classList.add("warn-text");
       card.append(metaEl);
 
