@@ -68,3 +68,17 @@ export function formatTime(seconds) {
   const s = Math.max(0, Math.round(seconds));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
+
+/**
+ * Line to jump to with ←/→ (dir -1 / +1), following time order.
+ * From "before the first line" (-1), → goes to the first line and ← stays put.
+ * @returns {number|null} line index, or null when there is nowhere to go
+ */
+export function adjacentLine(timeline, currentIndex, dir) {
+  const { indices } = timeline;
+  if (!indices.length) return null;
+  const k = indices.indexOf(currentIndex);
+  if (k === -1) return dir > 0 ? indices[0] : null;
+  const next = k + (dir > 0 ? 1 : -1);
+  return next >= 0 && next < indices.length ? indices[next] : null;
+}

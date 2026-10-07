@@ -95,6 +95,17 @@ export class Player {
     this.yt.playVideo();
   }
 
+  /** Seek without changing play/pause. */
+  async seek(seconds) {
+    if (!this.ready) return;
+    await this.ready;
+    this.yt.seekTo(seconds, true);
+  }
+
+  stop() {
+    if (this.isReady) this.yt.stopVideo();
+  }
+
   togglePlay() {
     if (!this.isReady) return;
     if (this.isPlaying()) this.yt.pauseVideo();

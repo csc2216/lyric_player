@@ -1,62 +1,68 @@
 import * as api from "./api.js";
+import { setupCreate } from "./create.js";
 import { installKeyboard } from "./keyboard.js";
 import { LibraryTree } from "./library.js";
 import { LyricsView, SyncLoop } from "./lyrics.js";
 import { PLAYER_ERRORS, Player } from "./player.js";
+import { AutoScroller } from "./scroll.js";
+import { loadSettings, normalizeSettings, saveSettings } from "./settings.js";
+import { SongBar } from "./songbar.js";
 import { formatTime } from "./sync.js";
+import { status, toast } from "./ui.js";
+import { OFFSET_STEP_MS, clampOffset, formatOffset } from "./util.js";
 
 const $ = (id) => document.getElementById(id);
 
 const state = {
   current: null, // {artist_slug, title_slug, song}
-  busy: false,
+  settings: loadSettings(),
 };
 
-// ---- status line ------------------------------------------------------------
+// ---- player, lyrics, sync, auto-scroll ------------------------------------
 
-const status = {
-  timer: null,
-  /** kind: "busy" | "ok" | "error" | "info"; busy shows a spinner and elapsed seconds. */
-  set(kind, text) {
-    clearInterval(this.timer);
-    const box = $("status");
-    box.hidden = false;
-    box.className = `status ${kind}`;
-    box.replaceChildren();
-    if (kind === "busy") box.append(Object.assign(document.createElement("span"), { className: "spinner" }));
-    const label = Object.assign(document.createElement("span"), { textContent: text });
-    box.append(label);
-    if (kind === "busy") {
-      const started = Date.now();
-      const elapsed = Object.assign(document.createElement("span"), { className: "elapsed", textContent: "0 秒" });
-      box.append(elapsed);
-      this.timer = setInterval(() => {
-        elapsed.textContent = `${Math.floor((Date.now() - started) / 1000)} 秒`;
-      }, 250);
-    }
-  },
-  hide() {
-    clearInterval(this.timer);
-    $("status").hidden = true;
-  },
-};
-
-// ---- player + lyrics ----------------------------------------------------
-
-const lyrics = new LyricsView($("lyrics"), (seconds) => player.seekAndPlay(seconds));
 const player = new Player("player", {
   onPlayingChange: (playing) => (playing ? loop.start() : loop.stop()),
-  onError: (code) => status.set("error", `影片無法播放：${PLAYER_ERRORS[code] ?? `錯誤碼 ${code}`}`),
+  onError: (code) =>
+    status.set("error", `影片無法播放：${PLAYER_ERRORS[code] ?? `錯誤碼 ${code}`}。可以按「換影片」選別的。`),
 });
+
+const lyrics = new LyricsView($("lyrics"), {
+  onSeek: (seconds, play) => (play ? player.seekAndPlay(seconds) : player.seek(seconds)),
+  onCurrentChange: () => scroller.follow(),
+  onEditTranslation: async (index, tr) => {
+    const cur = state.current;
+    try {
+      await api.patchSong(cur.artist_slug, cur.title_slug, { lines: [{ index, tr }] });
+      toast("已儲存翻譯", "ok");
+    } catch (err) {
+      toast(`翻譯儲存失敗：${err.message}`, "error", 4000);
+      throw err;
+    }
+  },
+  onRetranslate: retranslateLine,
+});
+
 const loop = new SyncLoop(
   () => player.currentTime(),
   (now) => lyrics.update(now),
 );
 
-installKeyboard({ togglePlay: () => player.togglePlay() });
+const scroller = new AutoScroller({
+  main: $("main"),
+  coverEl: () => $("player-wrap"),
+  currentEl: () => lyrics.currentEl,
+  onOffscreen: (show) => ($("jump-button").hidden = !show),
+});
 
-// Handle for poking at things from the browser console.
-window.lyricPlayer = { player, lyrics, state };
+// The player sticks right below the (sticky, variable-height) topbar.
+new ResizeObserver(([entry]) => {
+  document.documentElement.style.setProperty("--topbar-h", `${entry.target.offsetHeight}px`);
+}).observe(document.querySelector(".topbar"));
+
+$("jump-button").addEventListener("click", (e) => {
+  e.currentTarget.blur();
+  scroller.center();
+});
 
 $("shrink-button").addEventListener("click", (e) => {
   const small = $("player-wrap").classList.toggle("shrunk");
@@ -64,7 +70,144 @@ $("shrink-button").addEventListener("click", (e) => {
   e.currentTarget.blur();
 });
 
-// ---- library tree ---------------------------------------------------------
+async function retranslateLine(index) {
+  const cur = state.current;
+  if (!cur) return;
+  await flushOffset();
+  lyrics.setLineBusy(index, true);
+  try {
+    const res = await api.retranslate(cur.artist_slug, cur.title_slug, [index]);
+    if (state.current?.song !== cur.song) return; // switched songs meanwhile
+    if (res.missing_translations.includes(index)) toast("這行重翻失敗，保留原翻譯", "error", 3000);
+    else {
+      lyrics.setTranslation(index, res.song.lines[index].tr);
+      toast("已重新翻譯", "ok");
+    }
+  } catch (err) {
+    toast(`重翻失敗：${err.message}`, "error", 4000);
+  } finally {
+    lyrics.setLineBusy(index, false);
+  }
+}
+
+// ---- settings ---------------------------------------------------------------
+
+function applySettings() {
+  const s = state.settings;
+  if (s.theme === "auto") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = s.theme;
+  document.body.classList.toggle("layout-inline", s.layout === "inline");
+  scroller.enabled = s.autoScroll;
+  lyrics.preroll = s.preroll;
+  $("set-autoscroll").checked = s.autoScroll;
+  for (const r of document.querySelectorAll('input[name="layout"]')) r.checked = r.value === s.layout;
+  for (const r of document.querySelectorAll('input[name="theme"]')) r.checked = r.value === s.theme;
+  if (document.activeElement !== $("set-preroll")) $("set-preroll").value = String(s.preroll);
+}
+
+function updateSettings(patch) {
+  state.settings = normalizeSettings({ ...state.settings, ...patch });
+  saveSettings(state.settings);
+  applySettings();
+}
+
+$("set-autoscroll").addEventListener("change", (e) => {
+  updateSettings({ autoScroll: e.target.checked });
+  if (e.target.checked) scroller.follow();
+});
+for (const r of document.querySelectorAll('input[name="layout"], input[name="theme"]')) {
+  r.addEventListener("change", (e) => updateSettings({ [e.target.name]: e.target.value }));
+}
+$("set-preroll").addEventListener("change", (e) => updateSettings({ preroll: e.target.value }));
+
+function setSettingsOpen(open) {
+  $("settings-panel").hidden = !open;
+  $("settings-button").setAttribute("aria-expanded", String(open));
+}
+$("settings-button").addEventListener("click", (e) => {
+  e.currentTarget.blur();
+  setSettingsOpen($("settings-panel").hidden);
+});
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".settings")) setSettingsOpen(false);
+});
+
+applySettings();
+
+// ---- offset ([ / ]) ----------------------------------------------------------
+
+const OFFSET_SAVE_DELAY_MS = 1000;
+let pendingOffset = null; // {artistSlug, titleSlug, value, timer}
+
+function nudgeOffset(delta) {
+  const cur = state.current;
+  if (!cur) return;
+  const value = clampOffset((cur.song.offset_ms || 0) + delta);
+  cur.song.offset_ms = value;
+  showOffset();
+  toast(`offset ${formatOffset(value)}`, "info", 1200);
+  lyrics.update(player.currentTime()); // re-highlight right away, even when paused
+  if (pendingOffset) clearTimeout(pendingOffset.timer);
+  pendingOffset = {
+    artistSlug: cur.artist_slug,
+    titleSlug: cur.title_slug,
+    value,
+    timer: setTimeout(flushOffset, OFFSET_SAVE_DELAY_MS),
+  };
+}
+
+async function flushOffset() {
+  if (!pendingOffset) return;
+  const { artistSlug, titleSlug, value, timer } = pendingOffset;
+  clearTimeout(timer);
+  pendingOffset = null;
+  try {
+    await api.patchSong(artistSlug, titleSlug, { offset_ms: value });
+    toast(`offset ${formatOffset(value)} 已儲存`, "ok", 1200);
+  } catch (err) {
+    toast(`offset 儲存失敗：${err.message}`, "error", 4000);
+  }
+}
+
+function showOffset() {
+  $("offset-value").textContent = formatOffset(state.current?.song.offset_ms || 0);
+}
+
+$("offset-minus").addEventListener("click", (e) => {
+  e.currentTarget.blur();
+  nudgeOffset(-OFFSET_STEP_MS);
+});
+$("offset-plus").addEventListener("click", (e) => {
+  e.currentTarget.blur();
+  nudgeOffset(+OFFSET_STEP_MS);
+});
+
+// ---- keyboard -------------------------------------------------------------
+
+installKeyboard({
+  togglePlay: () => player.togglePlay(),
+  step: (dir) => {
+    if (state.current?.song.synced) lyrics.step(dir, player.isPlaying());
+  },
+  toggleAutoScroll: () => {
+    updateSettings({ autoScroll: !state.settings.autoScroll });
+    toast(`自動捲動：${state.settings.autoScroll ? "開" : "關"}`);
+    if (state.settings.autoScroll) scroller.follow();
+  },
+  nudgeOffset,
+  centerCurrent: () => {
+    if (!scroller.center()) toast("還沒有正在播放的歌詞行");
+  },
+  escape: () => {
+    setSettingsOpen(false);
+    songBar.close();
+  },
+});
+
+// Handle for poking at things from the browser console.
+window.lyricPlayer = { player, lyrics, scroller, state };
+
+// ---- library tree -----------------------------------------------------------
 
 const tree = new LibraryTree($("tree"), $("tree-filter"), (a, t) => {
   location.hash = songHash(a, t);
@@ -78,7 +221,7 @@ async function refreshTree() {
   }
 }
 
-// ---- song loading (hash routing: #/song/<artist_slug>/<title_slug>) ------
+// ---- song loading (hash routing: #/song/<artist_slug>/<title_slug>) --------
 
 const songHash = (a, t) => `#/song/${encodeURIComponent(a)}/${encodeURIComponent(t)}`;
 
@@ -92,6 +235,7 @@ async function openFromHash() {
   if (!slugs) return;
   const [a, t] = slugs;
   if (state.current && state.current.artist_slug === a && state.current.title_slug === t) return;
+  await flushOffset();
   try {
     showSong(await api.getSong(a, t));
   } catch (err) {
@@ -99,171 +243,102 @@ async function openFromHash() {
   }
 }
 
-function showSong(data) {
-  state.current = data;
-  const { song } = data;
-  $("welcome").hidden = true;
-  $("song").hidden = false;
+function showHeading() {
+  const { song } = state.current;
   $("song-title").textContent = `${song.artist} – ${song.title}`;
   const meta = [song.synced ? "同步歌詞" : "未同步", `${song.lines.length} 行`];
   if (song.youtube?.duration) meta.push(formatTime(song.youtube.duration));
-  if (song.offset_ms) meta.push(`offset ${song.offset_ms > 0 ? "+" : ""}${song.offset_ms} ms`);
   $("song-meta").textContent = meta.join(" · ");
+  document.title = `${song.title} – 歌詞播放器`;
+  showOffset();
+}
 
+/** Display a song (from GET/build). */
+function showSong(data) {
+  state.current = data;
+  const { song } = data;
+  songBar.close();
+  $("welcome").hidden = true;
+  $("song").hidden = false;
+  showHeading();
   const notice = $("song-notice");
   notice.hidden = song.synced;
   notice.textContent = song.synced ? "" : "這首歌沒有同步時間，無法點行跳播（之後會加入手動打點同步）。";
-
   lyrics.render(song);
   tree.setCurrent(data.artist_slug, data.title_slug);
-  document.title = `${song.title} – 歌詞播放器`;
   $("main").scrollTop = 0;
-
+  window.scrollTo(0, 0);
   if (song.youtube?.video_id) {
     player.load(song.youtube.video_id).catch((err) => status.set("error", err.message));
   }
 }
 
-window.addEventListener("hashchange", openFromHash);
-
-// ---- create flow ----------------------------------------------------------
-
-function setBusy(busy) {
-  state.busy = busy;
-  $("create-button").disabled = busy;
-  $("create-input").disabled = busy;
+function showEmpty() {
+  state.current = null;
+  player.stop();
+  lyrics.clear();
+  $("song").hidden = true;
+  $("welcome").hidden = false;
+  $("jump-button").hidden = true;
+  tree.current = null;
+  tree.render();
+  document.title = "歌詞播放器";
+  history.replaceState(null, "", location.pathname);
 }
 
-$("create-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const query = $("create-input").value.trim();
-  if (!query || state.busy) return;
-  hideCandidates();
-  setBusy(true);
-  status.set("busy", `搜尋中：在 LRCLIB 找歌詞、在 YouTube 找影片…`);
-  try {
-    const res = await api.resolve(query);
-    console.debug("resolve", res.reason, res);
-    if (!res.candidates.length) {
-      status.set("error", `找不到「${query}」的歌詞，試試「歌手 - 歌名」的格式。`);
-      return;
+window.addEventListener("hashchange", openFromHash);
+
+// ---- song toolbar -----------------------------------------------------------
+
+const songBar = new SongBar({
+  current: () => state.current,
+  beforeChange: flushOffset,
+  onUpdated: (res, change) => {
+    state.current = res;
+    showHeading();
+    if (change === "video") {
+      player.load(res.song.youtube.video_id).catch((err) => status.set("error", err.message));
+    } else if (change === "info") {
+      history.replaceState(null, "", songHash(res.artist_slug, res.title_slug));
+      refreshTree().then(() => tree.setCurrent(res.artist_slug, res.title_slug));
+    } else if (change === "lines") {
+      lyrics.render(res.song); // keeps scroll position; restore the highlight
+      lyrics.update(player.currentTime());
     }
-    const pick = res.candidates[0];
-    if (res.auto_ok && pick.video) {
-      await buildSong(pick, pick.video);
-    } else {
-      status.set("info", `找到 ${res.candidates.length} 個候選，請選一個。`);
-      showCandidates(res);
-    }
-  } catch (err) {
-    status.set("error", `搜尋失敗：${err.message}`);
-  } finally {
-    setBusy(false);
-  }
+  },
+  onDeleted: async () => {
+    showEmpty();
+    await refreshTree();
+  },
 });
 
-async function buildSong(candidate, video) {
-  setBusy(true);
-  status.set("busy", `翻譯中：${candidate.artist_name} – ${candidate.track_name}（${candidate.line_count} 行，約需 5–10 秒）`);
-  try {
-    const res = await api.build(candidate.id, video.video_id);
-    hideCandidates();
-    $("create-input").value = "";
+// ---- create flow ------------------------------------------------------------
+
+setupCreate({
+  onBuilt: async (res) => {
     await refreshTree();
-    if (res.created === false) status.set("info", "這首歌已經在歌曲庫裡，直接載入。");
-    else if (res.missing_translations.length) {
-      status.set("error", `完成，但有 ${res.missing_translations.length} 行翻譯失敗（留空）。`);
-    } else status.set("ok", "完成！點任一行歌詞開始播放。");
+    await flushOffset();
     state.current = null; // force reload even if the hash is unchanged
     const hash = songHash(res.artist_slug, res.title_slug);
     if (location.hash === hash) showSong(res);
     else location.hash = hash;
-  } catch (err) {
-    status.set("error", `建立失敗：${err.message}`);
-  } finally {
-    setBusy(false);
-  }
-}
+  },
+});
 
-// ---- candidate picker -----------------------------------------------------
+// ---- start --------------------------------------------------------------------
 
-function hideCandidates() {
-  $("candidates").hidden = true;
-  $("candidates").replaceChildren();
-}
-
-function showCandidates(res) {
-  const box = $("candidates");
-  const el = (tag, cls, text) => {
-    const n = document.createElement(tag);
-    if (cls) n.className = cls;
-    if (text !== undefined) n.textContent = text;
-    return n;
-  };
-
-  const head = el("div", "candidates-head");
-  head.append(el("h2", "", "選擇要建立的歌曲"));
-  const cancel = el("button", "small", "取消");
-  cancel.type = "button";
-  cancel.addEventListener("click", () => {
-    hideCandidates();
-    status.hide();
-  });
-  head.append(cancel);
-  const why = el("details", "reason");
-  why.append(el("summary", "", "為什麼沒有自動建立？"), el("code", "", res.reason));
-  box.replaceChildren(head, why);
-
-  res.candidates.forEach((c, i) => {
-    const card = el("article", "candidate");
-    const title = el("div", "cand-title");
-    title.append(el("strong", "", `${c.artist_name} – ${c.track_name}`));
-    if (i === 0) title.append(el("span", "tag accent", "推薦"));
-    card.append(title);
-
-    const meta = [formatTime(c.duration), c.synced ? "同步歌詞" : "無同步（只有純文字）", `${c.line_count} 行`];
-    if (c.album_name) meta.push(c.album_name);
-    const metaEl = el("div", "cand-meta", meta.join(" · "));
-    if (!c.duration_ok) metaEl.append(el("span", "tag warn", "時長資料可疑"));
-    if (!c.synced) metaEl.classList.add("warn-text");
-    card.append(metaEl);
-
-    const preview = el("div", "cand-preview");
-    for (const line of c.preview) preview.append(el("div", "", line));
-    card.append(preview);
-
-    const videoRow = el("div", "cand-video");
-    if (c.video) {
-      const thumb = el("img", "thumb");
-      thumb.src = `https://i.ytimg.com/vi/${encodeURIComponent(c.video.video_id)}/mqdefault.jpg`;
-      thumb.alt = "";
-      thumb.loading = "lazy";
-      const info = el("div", "video-info");
-      info.append(el("div", "video-title", c.video.title || c.video.video_id));
-      const diff = c.video.duration_diff;
-      const diffText = diff === null ? "" : `（${diff >= 0 ? "+" : ""}${Math.round(diff)} 秒）`;
-      const vmeta = el("div", "video-meta", `${c.video.channel} · ${formatTime(c.video.duration)}${diffText}`);
-      if (diff !== null && Math.abs(diff) > 3) vmeta.classList.add("warn-text");
-      info.append(vmeta);
-      videoRow.append(thumb, info);
-    } else {
-      videoRow.append(el("div", "warn-text", "找不到配對的 YouTube 影片"));
-    }
-    card.append(videoRow);
-
-    const choose = el("button", "", "用這個建立");
-    choose.type = "button";
-    choose.disabled = !c.video;
-    choose.addEventListener("click", () => {
-      if (!state.busy) buildSong(c, c.video);
+window.addEventListener("pagehide", () => {
+  // best effort: don't lose an offset tweak made just before closing the tab
+  if (pendingOffset) {
+    const { artistSlug, titleSlug, value } = pendingOffset;
+    fetch(`/api/songs/${encodeURIComponent(artistSlug)}/${encodeURIComponent(titleSlug)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ offset_ms: value }),
+      keepalive: true,
     });
-    card.append(choose);
-    box.append(card);
-  });
-  box.hidden = false;
-}
-
-// ---- start --------------------------------------------------------------
+  }
+});
 
 await refreshTree();
 await openFromHash();

@@ -40,3 +40,7 @@ export const getSong = (artistSlug, titleSlug) => request("GET", songPath(artist
 export const resolve = (query) => request("POST", "/api/resolve", { query });
 export const build = (lrclibId, videoId, force = false) =>
   request("POST", "/api/build", { lrclib_id: lrclibId, video_id: videoId, force });
+export const patchSong = (artistSlug, titleSlug, patch) => request("PATCH", songPath(artistSlug, titleSlug), patch);
+export const retranslate = (artistSlug, titleSlug, lineIndices) =>
+  request("POST", `${songPath(artistSlug, titleSlug)}/retranslate`, lineIndices ? { line_indices: lineIndices } : {});
+export const deleteSong = (artistSlug, titleSlug) => request("DELETE", songPath(artistSlug, titleSlug));

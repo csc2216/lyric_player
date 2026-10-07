@@ -5,6 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>歌詞播放器</title>
   <link rel="stylesheet" href="/style.css">
+  <script>
+    // Apply the saved theme before first paint (no light flash in dark mode).
+    try {
+      const t = JSON.parse(localStorage.getItem("lyricPlayer.settings") || "{}").theme;
+      if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+    } catch {}
+  </script>
 </head>
 <body>
   <aside class="sidebar">
@@ -15,10 +22,31 @@
 
   <div class="main" id="main">
     <header class="topbar">
-      <form id="create-form" class="create-form" autocomplete="off">
-        <input id="create-input" type="text" placeholder="歌名，或 歌手 - 歌名" required>
-        <button id="create-button" type="submit">建立</button>
-      </form>
+      <div class="topbar-row">
+        <form id="create-form" class="create-form" autocomplete="off">
+          <input id="create-input" type="text" placeholder="歌名，或 歌手 - 歌名" required>
+          <button id="create-button" type="submit">建立</button>
+        </form>
+        <div class="settings">
+          <button id="settings-button" type="button" class="small" aria-expanded="false">⚙ 設定</button>
+          <div id="settings-panel" class="settings-panel" hidden>
+            <label class="check"><input id="set-autoscroll" type="checkbox"> 自動捲動 <kbd>A</kbd></label>
+            <fieldset>
+              <legend>排版</legend>
+              <label><input type="radio" name="layout" value="stacked"> 原文 / 翻譯上下兩行</label>
+              <label><input type="radio" name="layout" value="inline"> 原文、翻譯同一行</label>
+            </fieldset>
+            <fieldset>
+              <legend>主題</legend>
+              <label><input type="radio" name="theme" value="auto"> 跟隨系統</label>
+              <label><input type="radio" name="theme" value="light"> 淺色</label>
+              <label><input type="radio" name="theme" value="dark"> 深色</label>
+            </fieldset>
+            <label class="field-inline">點行時提早 <input id="set-preroll" type="number" min="0" max="2" step="0.05"> 秒開始</label>
+            <p class="hint">快捷鍵：Space 播放/暫停 · ←/→ 上/下一行 · [ / ] offset ∓100ms · C 回到目前歌詞 · A 自動捲動</p>
+          </div>
+        </div>
+      </div>
       <div id="status" class="status" role="status" aria-live="polite" hidden></div>
     </header>
 
@@ -32,19 +60,35 @@
             <span id="song-title" class="song-title"></span>
             <span id="song-meta" class="song-meta"></span>
           </div>
-          <button id="shrink-button" type="button" class="small">縮小影片</button>
+          <div class="song-tools">
+            <span class="offset-ctl" title="歌詞時間偏移（[ / ] 鍵調整）">
+              <button id="offset-minus" type="button" class="small" title="歌詞提早 100ms（[）">−</button>
+              <span id="offset-value" class="offset-value">0 ms</span>
+              <button id="offset-plus" type="button" class="small" title="歌詞延後 100ms（]）">+</button>
+            </span>
+            <button id="video-button" type="button" class="small">換影片</button>
+            <button id="info-button" type="button" class="small">編輯資訊</button>
+            <button id="retranslate-all-button" type="button" class="small">全部重翻</button>
+            <button id="delete-button" type="button" class="small danger">刪除</button>
+            <button id="shrink-button" type="button" class="small">縮小影片</button>
+          </div>
         </div>
+        <div id="song-panel" class="song-panel" hidden></div>
       </div>
       <p id="song-notice" class="song-notice" hidden></p>
       <div id="lyrics" class="lyrics"></div>
+      <div class="jump-anchor">
+        <button id="jump-button" type="button" class="jump-button" hidden>回到目前歌詞 <kbd>C</kbd></button>
+      </div>
     </section>
 
     <section id="welcome" class="welcome">
       <p>從左側選一首歌，或在上方輸入歌名建立新歌。</p>
-      <p class="hint">點歌詞任一行從那裡開始播；空白鍵播放 / 暫停。</p>
+      <p class="hint">點歌詞任一行從那裡開始播；空白鍵播放 / 暫停；雙擊翻譯可以修改。</p>
     </section>
   </div>
 
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script type="module" src="/js/main.js"></script>
 </body>
 </html>

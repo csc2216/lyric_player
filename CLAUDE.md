@@ -81,7 +81,9 @@ lyric-player/
 
 測試：後端 `uv run pytest`；前端純函式 `node --test "tests/js/*.test.mjs"`（Node 22 的 `--test` 不吃資料夾，要給 glob；WSL 上沒裝 node 時可用 Windows 的 `node.exe`）。
 
-啟動：`uv run uvicorn app.main:app --port 8765 --reload`，瀏覽器開 `http://localhost:8765`。
+啟動：
+- 開發（WSL 內）：`./run.sh`（= `uv run uvicorn app.main:app --port 8765 --reload`），瀏覽器開 `http://localhost:8765`。
+- 一鍵啟動（Windows）：雙擊專案根目錄的 `start-lyric-player.bat`（可建桌面捷徑，見 README）。它透過 `wsl.exe --cd` 執行 `scripts/serve_windows.sh`：背景啟動 `uvicorn --host 0.0.0.0 --port 8765`（不 reload）→ 等 `/api/library` 有回應 → 用預設瀏覽器開網頁；8765 已有伺服器在跑時只開瀏覽器；關閉視窗（wsl.exe 結束 → SIGHUP / stdin EOF）時伺服器跟著停。wsl.exe 是非 login shell，不會讀 `~/.profile`，所以腳本自己把 `~/.local/bin` 加進 PATH 找 `uv`。`LYRIC_PLAYER_PORT` 環境變數可改 port；參數 `--no-browser` 不開瀏覽器（測試用）。
 （IFrame API 必須在 http origin 下跑，不能用 file://。）
 
 ## 資料格式
@@ -228,6 +230,10 @@ lyric-player/
 | ← / → | 跳到上一行 / 下一行開頭 |
 | A | 切換自動捲動 |
 | [ / ] | offset −/+ 100ms（顯示目前值，停止按 1 秒後 PATCH 存檔） |
+| C | 把目前播放的那行捲到畫面中央（不論自動捲動是否開啟） |
+| Esc | 關閉設定 / 換影片 / 編輯資訊面板 |
+
+- 「回到目前歌詞」浮動按鈕：目前行完全不在可見範圍（含被 sticky 影片蓋住）時，顯示在歌詞區右下角；點了效果同 C，回到畫面內後自動消失。
 
 - `keydown` 監聽在 `document`；焦點在 input / textarea / contenteditable 時不處理。
 - 處理到的鍵要 `preventDefault()`（避免空白鍵捲動頁面）。
