@@ -54,3 +54,12 @@ CSS grid 三欄（不用 JS 算寬高）：
 
 - `onError` 收到 101 / 150（禁止嵌入）或 100（影片不存在）→ 自動換 `alternatives` 下一個，並 PATCH 存回；全部失敗則顯示錯誤和「換影片」選單。
   - 實作（M5）：本次載入歌曲期間試過的 video id 記在 `triedVideos`（換歌時清空），`util.js pickNextVideo` 挑第一個沒試過的 alternative；PATCH 後舊影片會進 alternatives 開頭，靠 `triedVideos` 避免繞回來。其他錯誤碼（2、5）只顯示訊息。
+
+## 播完後動作
+
+- 功能按鈕列「播完：停止 / 隨機 / 同歌手」按鈕，點一下切到下一個模式，存在 settings（`endMode`，localStorage；訪客、離線都可用）。
+  - `stop`（預設）：播完什麼都不做。
+  - `shuffle`：從整個歌曲庫隨機挑一首（排除目前這首；庫裡只有一首就重播）。
+  - `artist`：播同歌手的下一首（依歌曲庫 tree 的順序），最後一首接回第一首；只有一首就重播。
+- 播放器 `onStateChange` 收到 `ENDED` → `main.js playNextSong()`；選歌是純函式 `util.js pickNextSong`（測試 `tests/js/endmode.test.mjs`）。校準或打點中不自動換歌。
+- 換歌沿用 hash 路由（`location.hash = ...` → `openSong` → `showSong`），用 `state.autoplayNext` 讓這次 `player.load(id, {autoplay: true})` 改用 `loadVideoById` 直接播放（一般載入仍是 `cueVideoById` 不自動播）。載入失敗（例如離線且這台裝置沒有那首）只顯示錯誤。

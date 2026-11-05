@@ -106,7 +106,7 @@ describe("normalizeSettings", () => {
   test("keeps valid values, drops invalid", () => {
     const s = normalizeSettings({ autoScroll: false, layout: "inline", theme: "neon", preroll: "0.3", extra: 1 });
     assert.deepEqual(s, {
-      autoScroll: false, layout: "inline", theme: "auto", preroll: 0.3, sidebarCollapsed: false, volume: 100, muted: false,
+      autoScroll: false, layout: "inline", theme: "auto", preroll: 0.3, sidebarCollapsed: false, volume: 100, muted: false, endMode: "stop",
     });
     assert.equal(normalizeSettings({ sidebarCollapsed: true }).sidebarCollapsed, true);
     assert.equal(normalizeSettings({ sidebarCollapsed: "yes" }).sidebarCollapsed, false);

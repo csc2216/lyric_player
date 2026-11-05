@@ -13,11 +13,13 @@ import { formatTime } from "./sync.js";
 import { Tapper } from "./tapper.js";
 import { status, toast } from "./ui.js";
 import {
+  END_MODES,
   OFFSET_STEP_MS,
   SWITCHABLE_PLAYER_ERRORS,
   clampOffset,
   formatOffset,
   formatOffsetSeconds,
+  pickNextSong,
   pickNextVideo,
 } from "./util.js";
 
@@ -30,6 +32,7 @@ const state = {
   current: null, // {artist_slug, title_slug, song} (song = server copy merged with this device's edits)
   settings: loadSettings(),
   me: null, // /api/me response
+  autoplayNext: false, // the next showSong() starts playing (auto-next after a video ends)
 };
 
 const data = new SongData();
@@ -49,7 +52,21 @@ const player = new Player("player", {
     playing ? loop.start() : loop.stop();
   },
   onError: (code) => handlePlayerError(code),
+  onEnded: () => playNextSong(),
 });
+
+/** A video ended: follow the end mode (nothing / random song / same artist's next song). */
+function playNextSong() {
+  if (!state.current || calibrator.active || tapper.active) return;
+  const next = pickNextSong(data.tree(), state.current, state.settings.endMode);
+  if (!next) return;
+  if (next.artist_slug === state.current.artist_slug && next.title_slug === state.current.title_slug) {
+    player.replay();
+    return;
+  }
+  state.autoplayNext = true;
+  location.hash = songHash(next.artist_slug, next.title_slug);
+}
 
 const lyrics = new LyricsView($("lyrics"), {
   onSeek: (seconds, play) => (play ? player.seekAndPlay(seconds) : player.seek(seconds)),
@@ -151,6 +168,30 @@ $("sidebar-toggle").addEventListener("click", (e) => {
 // Narrow / touch screens start collapsed (the saved preference is for wide layouts).
 setSidebarCollapsed(startCollapsed.matches || state.settings.sidebarCollapsed);
 
+// ---- narrow screens: control area ends right under the first row of song buttons --
+
+const narrowLayout = matchMedia("(max-width: 999px)");
+
+/** Measure where the first row of .song-tools ends; CSS caps .center there (--center-cap). */
+function updateCenterCap() {
+  const center = $("center");
+  const tools = document.querySelector(".song-tools");
+  const visible = [...tools.children].filter((b) => b.offsetParent !== null);
+  if (!narrowLayout.matches || $("song-area").hidden || !visible.length) {
+    center.style.removeProperty("--center-cap");
+    return;
+  }
+  const rowTop = visible[0].offsetTop;
+  const rowBottom = Math.max(...visible.filter((b) => b.offsetTop === rowTop).map((b) => b.getBoundingClientRect().bottom));
+  const cap = rowBottom - center.getBoundingClientRect().top + center.scrollTop + 8;
+  center.style.setProperty("--center-cap", `${Math.ceil(cap)}px`);
+}
+const capObserver = new ResizeObserver(() => updateCenterCap());
+for (const node of [$("center"), document.querySelector(".song-tools"), document.querySelector(".song-heading")]) {
+  capObserver.observe(node);
+}
+narrowLayout.addEventListener("change", updateCenterCap);
+
 async function retranslateLine(index) {
   const cur = state.current;
   if (!cur || !serverActionsAllowed("重翻")) return;
@@ -237,7 +278,16 @@ function applySettings() {
   for (const r of document.querySelectorAll('input[name="layout"]')) r.checked = r.value === s.layout;
   for (const r of document.querySelectorAll('input[name="theme"]')) r.checked = r.value === s.theme;
   if (document.activeElement !== $("set-preroll")) $("set-preroll").value = String(s.preroll);
+  $("endmode-button").textContent = `播完：${END_MODE_LABELS[s.endMode]}`;
 }
+
+const END_MODE_LABELS = { stop: "停止", shuffle: "隨機", artist: "同歌手" };
+$("endmode-button").addEventListener("click", (e) => {
+  e.currentTarget.blur();
+  const i = END_MODES.indexOf(state.settings.endMode);
+  updateSettings({ endMode: END_MODES[(i + 1) % END_MODES.length] });
+  toast(`播完後：${{ stop: "停止", shuffle: "隨機播一首", artist: "循環播同歌手的歌" }[state.settings.endMode]}`);
+});
 
 function updateSettings(patch) {
   state.settings = normalizeSettings({ ...state.settings, ...patch });
@@ -676,6 +726,7 @@ async function openSong(a, t) {
   try {
     showSong(await data.getSong(a, t));
   } catch (err) {
+    state.autoplayNext = false;
     status.set("error", `無法載入歌曲：${err.message}`);
   }
 }
@@ -694,6 +745,7 @@ function showHeading() {
   // calibration needs timestamps; tap-sync is for songs without them
   $("calibrate-button").hidden = !song.synced;
   $("tap-button").hidden = song.synced;
+  updateCenterCap();
 }
 
 function showNotice() {
@@ -722,9 +774,12 @@ function showSong(view) {
   showNotice();
   tree.setCurrent(view.artist_slug, view.title_slug);
   $("lyrics-col").scrollTop = 0;
+  const autoplay = state.autoplayNext;
+  state.autoplayNext = false;
   if (song.youtube?.video_id) {
-    player.load(song.youtube.video_id).catch((err) => status.set("error", err.message));
+    player.load(song.youtube.video_id, { autoplay }).catch((err) => status.set("error", err.message));
   }
+  updateCenterCap();
 }
 
 function showEmpty() {

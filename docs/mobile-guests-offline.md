@@ -25,4 +25,4 @@
 **觸控與版面**
 - `(pointer: coarse)`：歌詞欄右下角浮動 ⏮ ⏯ ⏭（`#touch-controls`，和「回到目前歌詞」疊在同一個 sticky 容器）；自動捲動的可見區扣掉浮動按鈕（`AutoScroller` 的 `coverBottomEl`）。點擊區加大、輸入框 16px（避免 iOS 放大）、`touch-action: manipulation`。
 - 觸控時點翻譯立即跳播（不等雙擊）；長按 550ms 編輯翻譯（移動 >10px 取消，放開後的 click 不跳播）。
-- < 1000px（手機、iPad 直向）：三列 grid（側邊欄條 / 控制區最高 48dvh 自己捲動、影片 sticky 置頂並縮小 / 歌詞 1fr），整頁不捲動。觸控裝置寬 < 1200px 時側邊欄預設收合。iOS 主畫面模式用 `viewport-fit=cover` + safe-area padding。
+- < 1000px（手機、iPad 直向）：三列 grid（側邊欄條 / 控制區最高 48dvh 自己捲動；有歌時控制區只到功能按鈕列的第一排為止（`main.js updateCenterCap` 量出 `--center-cap`，其餘按鈕列 / 建立框在控制區內往下捲），開設定、校準 / 打點、換影片等面板或在建立框打字時恢復 48dvh、影片 sticky 置頂並縮小 / 歌詞 1fr），整頁不捲動。觸控裝置寬 < 1200px 時側邊欄預設收合。iOS 主畫面模式用 `viewport-fit=cover` + safe-area padding。

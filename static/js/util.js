@@ -67,3 +67,30 @@ export function pickNextVideo(youtube, tried) {
   }
   return null;
 }
+
+/** What happens when a video finishes: nothing / random song / next song by the same artist. */
+export const END_MODES = ["stop", "shuffle", "artist"];
+
+/**
+ * Song to play after `current` ends, as {artist_slug, title_slug}, or null for "do nothing".
+ * `tree` is the library tree ([{artist_slug, songs: [{title_slug}]}]). May return the
+ * current song itself (only one candidate): the caller replays it.
+ */
+export function pickNextSong(tree, current, mode, random = Math.random) {
+  if (!current || !Array.isArray(tree)) return null;
+  if (mode === "shuffle") {
+    const all = tree.flatMap((a) => a.songs.map((s) => ({ artist_slug: a.artist_slug, title_slug: s.title_slug })));
+    const others = all.filter((s) => s.artist_slug !== current.artist_slug || s.title_slug !== current.title_slug);
+    const pool = others.length ? others : all;
+    if (!pool.length) return null;
+    return pool[Math.min(pool.length - 1, Math.floor(random() * pool.length))];
+  }
+  if (mode === "artist") {
+    const artist = tree.find((a) => a.artist_slug === current.artist_slug);
+    const i = artist ? artist.songs.findIndex((s) => s.title_slug === current.title_slug) : -1;
+    if (i < 0) return null;
+    const next = artist.songs[(i + 1) % artist.songs.length];
+    return { artist_slug: artist.artist_slug, title_slug: next.title_slug };
+  }
+  return null;
+}

@@ -10,6 +10,7 @@ export const DEFAULTS = Object.freeze({
   sidebarCollapsed: false,
   volume: 100, // our own volume control (YouTube's popup slider is unusable in small players)
   muted: false,
+  endMode: "stop", // "stop" | "shuffle" | "artist": what to do when a video ends
 });
 
 /** Fill defaults and drop invalid values. Pure. */
@@ -23,6 +24,7 @@ export function normalizeSettings(raw) {
   if (raw.volume !== null && raw.volume !== "" && Number.isFinite(v)) s.volume = Math.round(Math.min(100, Math.max(0, v)));
   if (["stacked", "inline"].includes(raw.layout)) s.layout = raw.layout;
   if (["auto", "light", "dark"].includes(raw.theme)) s.theme = raw.theme;
+  if (["stop", "shuffle", "artist"].includes(raw.endMode)) s.endMode = raw.endMode;
   const p = Number(raw.preroll);
   if (raw.preroll !== null && raw.preroll !== "" && Number.isFinite(p)) s.preroll = Math.min(2, Math.max(0, p));
   return s;

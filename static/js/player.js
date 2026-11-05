@@ -36,7 +36,7 @@ export const PLAYER_ERRORS = {
 export class Player {
   /**
    * @param {string} elementId placeholder element replaced by the iframe
-   * @param {{onPlayingChange?: (playing: boolean) => void, onError?: (code: number) => void}} handlers
+   * @param {{onPlayingChange?: (playing: boolean) => void, onError?: (code: number) => void, onEnded?: () => void}} handlers
    */
   constructor(elementId, handlers = {}) {
     this.elementId = elementId;
@@ -47,7 +47,8 @@ export class Player {
   }
 
   /** Show a video without autoplaying it. */
-  async load(videoId) {
+  /** Show a video; autoplay starts it right away (used for auto-next). */
+  async load(videoId, { autoplay = false } = {}) {
     this.videoId = videoId;
     if (!this.ready) {
       this.ready = loadIframeApi().then(
@@ -61,9 +62,13 @@ export class Player {
               events: {
                 onReady: () => {
                   this.handlers.onReady?.();
+                  if (autoplay) this.yt.playVideo();
                   resolve();
                 },
-                onStateChange: (e) => this.handlers.onPlayingChange?.(e.data === YT.PlayerState.PLAYING),
+                onStateChange: (e) => {
+                  this.handlers.onPlayingChange?.(e.data === YT.PlayerState.PLAYING);
+                  if (e.data === YT.PlayerState.ENDED) this.handlers.onEnded?.();
+                },
                 onError: (e) => this.handlers.onError?.(e.data),
               },
             });
@@ -76,7 +81,15 @@ export class Player {
     }
     await this.ready;
     this.handlers.onPlayingChange?.(false);
-    this.yt.cueVideoById(videoId);
+    if (autoplay) this.yt.loadVideoById(videoId);
+    else this.yt.cueVideoById(videoId);
+  }
+
+  /** Start the current video again from the beginning. */
+  replay() {
+    if (!this.isReady) return;
+    this.yt.seekTo(0, true);
+    this.yt.playVideo();
   }
 
   get isReady() {

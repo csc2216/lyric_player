@@ -982,6 +982,17 @@ body.video-expanded .expand-close {
     padding-top: 8px;
   }
 
+  /* with a song shown, the lyrics start right under the first row of song buttons
+     (--center-cap is measured in main.js); the other rows and the create box scroll */
+  .center:has(#song-area:not([hidden])) {
+    max-height: var(--center-cap, 48dvh);
+  }
+
+  /* panels, settings and typing need room: back to the normal cap */
+  .center:has(#settings-panel:not([hidden]), #calib-panel:not([hidden]), #tap-panel:not([hidden]), #song-panel:not([hidden]), #create-input:focus) {
+    max-height: 48dvh;
+  }
+
   .song-area {
     order: -1; /* video first, the create box below the song tools */
     gap: 8px;
