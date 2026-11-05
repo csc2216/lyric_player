@@ -6,7 +6,7 @@
 - 加 `User-Agent: lyric-player/0.1 (local personal use)`（LRCLIB 要求）。
 - 使用者輸入支援 `歌手 - 歌名` 或自由文字。有 ` - ` 就拆成 artist/track 查，否則用 `q`。
 - 候選排序：有 `syncedLyrics` 優先 → 非羅馬拼音 → 時長資料合理 → 標題/歌手字串相似度；排除 `instrumental: true`。
-- 羅馬拼音版（`romanized`）：歌詞非拉丁字母比例 ≤ 5%，**且**同一首歌（`same_name` 比對歌名與歌手）另有一筆 ≥ 30% 的上傳（韓文 / 日文 / 中文）。相對判定，所以英文歌不受影響。LRCLIB 常有和原文時間戳完全相同的拼音版上傳。
+- 羅馬拼音版（`romanized`）：歌詞非拉丁字母比例 ≤ 5%，**且**同一首歌（`same_name` 比對歌名與歌手）另有一筆 ≥ 30% 的上傳（韓文 / 日文 / 中文）。相對判定，所以英文歌不受影響。LRCLIB 常有和原文時間戳完全相同的拼音版上傳。LRCLIB **只有**拼音版時判定不到（沒有原文上傳可比）→ 使用者用「替換歌詞」貼原文（§6）。
 
 ## 2. LRC 解析（`services/lrc_parser.py`）— 要有完整單元測試
 
@@ -50,3 +50,12 @@
 - `list_tree()` → `[{artist, artist_slug, songs: [{title, title_slug, synced}]}]`，歌手和歌曲都依名稱排序。
 - `get_song`, `save_song`, `delete_song`, `move_song`（改歌手名時搬資料夾，空資料夾刪掉）。
 - 存檔前檢查同名歌曲已存在 → 回傳既有的，不重做（除非 `force=true`）。
+
+## 6. 替換原文 / 時間戳移植（`services/hangul.py`、`lrc_parser.transfer_timestamps`）
+
+- 用途：LRCLIB 只有羅馬拼音版（例如部分 K-pop），使用者貼上原文，沿用拼音版的時間軸。
+- `hangul.romanize`：Revised Romanization 逐音節（初聲 / 中聲 / 終聲查表）＋連音（終聲移到後面的 ㅇ 音節：있어 → isseo、읽어 → ilgeo、좋아 → joa）；其他音變不處理。非韓文字元原樣保留（英文行照樣能比）。
+- `loose_key`：`normalize_text(romanize(...))` 後折疊常見拼法差異（eo→o、eu→u、ae/oe→e、wo→o、ch→j、sh→s、k→g、t→d、p→b、r→l），再把連續相同字母收成一個。兩邊都套用。
+- 對齊重用 `align()`，門檻 `RETIME_LINE_SIMILARITY = 0.6`（一般段落對齊仍是 0.85）。`align` 是加權 LCS：每個配對權重 = 1 + 相似度，所以先求配對數最多、同數量時選比較像的配對（避免「新加的一行」搶走後面真正相同行的時間）。
+- 對上的行直接用該行 `t`。沒對上的連續區段：若夾在同兩個已對上配對之間的拼音版未配對行數相同 → 一對一照順序沿用；否則前後已知時間之間平均分配；開頭往前每行 −2 秒（不小於 0），結尾往後每行 +2 秒（`RETIME_TAIL_STEP`）。最後保證 `t` 不遞減。
+- 分段（`break_before`）以貼上文字的空行為準。對齊失敗 → `None`（API 回 400 或存成未同步）。

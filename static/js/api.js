@@ -73,6 +73,8 @@ export const patchSong = (artistSlug, titleSlug, patch) => request("PATCH", song
 export const retranslate = (artistSlug, titleSlug, lineIndices) =>
   request("POST", `${songPath(artistSlug, titleSlug)}/retranslate`, lineIndices ? { line_indices: lineIndices } : {});
 export const deleteSong = (artistSlug, titleSlug) => request("DELETE", songPath(artistSlug, titleSlug));
+export const replaceLyrics = (artistSlug, titleSlug, text, allowUnsynced = false) =>
+  request("POST", `${songPath(artistSlug, titleSlug)}/lyrics`, { text, allow_unsynced: allowUnsynced });
 export const me = () => request("GET", "/api/me", undefined, { timeoutMs: 6000 });
 // silent: a wrong PIN (401 pin_required) must not re-trigger the global "ask for PIN" handling
 export const submitPin = (pin) => request("POST", "/api/auth/pin", { pin }, { silent: true });

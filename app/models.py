@@ -151,6 +151,8 @@ class SongResponse(BaseModel):
     created: bool | None = None
     # line indices left without translation after the retry
     missing_translations: list[int] = Field(default_factory=list)
+    # replace-lyrics: how many pasted lines got their time from a matched line
+    retime: dict[str, int] | None = None
 
 
 class LinePatch(BaseModel):
@@ -166,6 +168,12 @@ class SongPatch(BaseModel):
     title: str | None = Field(default=None, min_length=1)
     synced: bool | None = None
     lines: list[LinePatch] | None = None
+
+
+class ReplaceLyricsRequest(BaseModel):
+    text: str = Field(min_length=1)
+    # alignment failed: save the text without timing (for tap sync) instead of erroring
+    allow_unsynced: bool = False
 
 
 class RetranslateRequest(BaseModel):

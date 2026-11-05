@@ -1,4 +1,4 @@
-// Song toolbar panels: change video, edit artist/title, retranslate all, delete.
+// Song toolbar panels: change video, edit artist/title, replace lyrics, retranslate all, delete.
 
 import * as api from "./api.js";
 import { videoThumb } from "./create.js";
@@ -23,6 +23,7 @@ export class SongBar {
     this.openName = null;
     document.getElementById("video-button").addEventListener("click", (e) => this.#toggle("video", e));
     document.getElementById("info-button").addEventListener("click", (e) => this.#toggle("info", e));
+    document.getElementById("lyrics-button").addEventListener("click", (e) => this.#toggle("lyrics", e));
     document.getElementById("retranslate-all-button").addEventListener("click", (e) => {
       e.currentTarget.blur();
       this.#retranslateAll();
@@ -45,14 +46,15 @@ export class SongBar {
     this.open(name);
   }
 
-  /** Open a panel: "video" | "info". */
+  /** Open a panel: "video" | "info" | "lyrics". */
   open(name) {
     this.openName = name;
-    this.panel.replaceChildren(name === "video" ? this.#videoPanel() : this.#infoPanel());
+    const panels = { video: () => this.#videoPanel(), info: () => this.#infoPanel(), lyrics: () => this.#lyricsPanel() };
+    this.panel.replaceChildren(panels[name]());
     this.panel.hidden = false;
     // The center column scrolls on its own: bring the panel into view there.
     this.panel.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    this.panel.querySelector("input")?.focus({ preventScroll: true });
+    this.panel.querySelector("input, textarea")?.focus({ preventScroll: true });
   }
 
   async #patch(patch, change, okText) {
@@ -151,6 +153,64 @@ export class SongBar {
       if (await this.#patch(patch, "info", "已更新歌手 / 歌名")) this.close();
     });
     return form;
+  }
+
+  // ---- replace lyrics (e.g. Korean for a romanized LRCLIB upload) ----
+
+  #lyricsPanel() {
+    const { song } = this.current();
+    const form = el("form", "panel-lyrics");
+    form.append(el("h3", "", "替換原文歌詞"));
+    form.append(
+      el(
+        "p",
+        "hint",
+        song.synced
+          ? "從 Spotify 等處複製原文歌詞貼上（例如 LRCLIB 只有羅馬拼音版時）。會沿用現有的時間軸逐行對齊，並整首重新翻譯；空行 = 分段。"
+          : "貼上原文歌詞，整首重新翻譯；之後用「打點同步」對時間。空行 = 分段。",
+      ),
+    );
+    const text = el("textarea");
+    text.rows = 10;
+    text.required = true;
+    text.placeholder = "一行一句歌詞";
+    form.append(text);
+    const actions = el("div", "panel-actions");
+    const save = button(song.synced ? "對齊並重翻" : "儲存並重翻", "", null);
+    save.type = "submit";
+    actions.append(save, button("取消", "small", () => this.close()));
+    form.append(actions);
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      // unsynced songs have no timing to carry over
+      this.#replaceLyrics(text.value, !song.synced, actions);
+    });
+    return form;
+  }
+
+  async #replaceLyrics(text, allowUnsynced, actions) {
+    const cur = this.current();
+    if (!cur || !text.trim()) return;
+    await this.beforeChange();
+    status.set("busy", `替換歌詞並重新翻譯中：${cur.song.title}`);
+    try {
+      const res = await api.replaceLyrics(cur.artist_slug, cur.title_slug, text, allowUnsynced);
+      this.close();
+      this.onUpdated(res, "lines");
+      const parts = [];
+      if (res.retime) parts.push(`已對齊 ${res.retime.matched} / ${res.retime.total} 行（其餘依前後行推算）`);
+      else parts.push("已存成未同步，可以用「打點同步」對時間");
+      if (res.missing_translations.length) parts.push(`${res.missing_translations.length} 行翻譯失敗`);
+      status.set(res.missing_translations.length ? "error" : "ok", parts.join("；"));
+    } catch (err) {
+      status.set("error", `替換歌詞失敗：${err.message}`);
+      if (err.status === 400 && !allowUnsynced && !actions.querySelector(".unsynced")) {
+        const fallback = button("存成未同步（之後用打點同步）", "small unsynced", () =>
+          this.#replaceLyrics(text, true, actions),
+        );
+        actions.append(fallback);
+      }
+    }
   }
 
   // ---- retranslate all / delete ----

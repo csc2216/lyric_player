@@ -7,8 +7,10 @@ from app.services.lrc_parser import (
     apply_plain_breaks,
     build_lines,
     entries_to_lines,
+    loose_key,
     parse_lrc,
     parse_plain,
+    transfer_timestamps,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -240,3 +242,74 @@ def test_negative_offset_with_alignment():
 def test_translation_field_empty():
     lines = build_lines("[00:01.00]a", None).lines
     assert lines[0].tr == ""
+
+
+# ---- pasted native lyrics onto a romanized upload's timing -------------------
+
+# Made-up lines; the romanization is hand-written and deliberately loose.
+ROMANIZED = (
+    "[00:05.00]cheotjjae jureun yeogi\n"
+    "[00:09.00]duljjae jul isseo\n"
+    "[00:14.00]line three in english\n"
+    "[00:20.00]\n"
+    "[00:24.00]da-si cheo-eum-bu-teo\n"
+    "[00:30.00]majimak jul\n"
+)
+KOREAN = "첫째 줄은 여기\n둘째 줄 있어\n\nline three in english\n다시 처음부터\n마지막 줄"
+
+
+def romanized_lines():
+    return entries_to_lines(parse_lrc(ROMANIZED))
+
+
+def test_loose_key_folds_spelling_variants():
+    assert loose_key("있어") == loose_key("isseo") == loose_key("isso")
+    assert loose_key("처음") == loose_key("cheo-eum")
+    assert loose_key("Line Three!") == loose_key("line three")
+
+
+def test_transfer_timestamps_matches_every_line():
+    r = transfer_timestamps(KOREAN, romanized_lines())
+    assert (r.matched, r.total) == (5, 5)
+    assert [(line.t, line.text) for line in r.lines] == [
+        (5.0, "첫째 줄은 여기"),
+        (9.0, "둘째 줄 있어"),
+        (14.0, "line three in english"),
+        (24.0, "다시 처음부터"),
+        (30.0, "마지막 줄"),
+    ]
+    # paragraphs come from the pasted text, not the upload's instrumental marker
+    assert breaks(r.lines) == [2]
+
+
+def test_transfer_extra_pasted_line_is_interpolated():
+    r = transfer_timestamps(KOREAN.replace("다시 처음부터", "다시 처음부터\n새로 끼운 줄"), romanized_lines())
+    assert (r.matched, r.total) == (5, 6)
+    assert [line.t for line in r.lines] == [5.0, 9.0, 14.0, 24.0, 27.0, 30.0]
+
+
+def test_transfer_unmatched_line_takes_time_of_unmatched_upload_line():
+    # same number of unmatched lines on both sides of a gap: paired one to one
+    r = transfer_timestamps(KOREAN.replace("다시 처음부터", "전혀 다른 말"), romanized_lines())
+    assert r.matched == 4
+    assert [line.t for line in r.lines] == [5.0, 9.0, 14.0, 24.0, 30.0]
+
+
+def test_transfer_trailing_extra_lines_step_after_last():
+    r = transfer_timestamps(KOREAN + "\n덧붙인 줄\n또 하나", romanized_lines())
+    assert [line.t for line in r.lines][-3:] == [30.0, 32.0, 34.0]
+
+
+def test_transfer_leading_extra_line_before_first():
+    r = transfer_timestamps("앞에 붙인 줄\n" + KOREAN, romanized_lines())
+    assert [line.t for line in r.lines][:2] == [3.0, 5.0]
+
+
+def test_transfer_unrelated_text_fails():
+    assert transfer_timestamps("하나\n둘\n셋\n넷\n다섯", romanized_lines()) is None
+
+
+def test_transfer_needs_timing():
+    untimed = parse_plain("cheotjjae jul")
+    assert transfer_timestamps("첫째 줄", untimed) is None
+    assert transfer_timestamps("", romanized_lines()) is None

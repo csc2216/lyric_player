@@ -16,6 +16,7 @@ from app.auth import Forbidden, Identity
 from app.config import settings
 from app.models import (
     BuildRequest,
+    ReplaceLyricsRequest,
     ResolveRequest,
     ResolveResponse,
     RetranslateRequest,
@@ -43,7 +44,7 @@ def viewer(request: Request, store: auth.GuestStore = Depends(get_guest_store)) 
 
 def owner(who: Identity = Depends(viewer)) -> Identity:
     if not who.is_owner:
-        raise Forbidden("訪客不能修改伺服器上的歌曲（刪除、改名、重翻、換影片、改 offset 或翻譯）；你的修改只會存在這台裝置")
+        raise Forbidden("訪客不能修改伺服器上的歌曲（刪除、改名、重翻、替換歌詞、換影片、改 offset 或翻譯）；你的修改只會存在這台裝置")
     return who
 
 
@@ -159,6 +160,17 @@ def retranslate(
 ) -> SongResponse:
     indices = body.line_indices if body else None
     return pipeline.retranslate(lib, artist_slug, title_slug, indices)
+
+
+@router.post("/songs/{artist_slug}/{title_slug}/lyrics")
+def replace_lyrics(
+    artist_slug: str,
+    title_slug: str,
+    body: ReplaceLyricsRequest,
+    lib: Library = Depends(get_library),
+    _: Identity = Depends(owner),
+) -> SongResponse:
+    return pipeline.replace_lyrics(lib, artist_slug, title_slug, body.text, body.allow_unsynced)
 
 
 @router.delete("/songs/{artist_slug}/{title_slug}", status_code=204)

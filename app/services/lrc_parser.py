@@ -6,6 +6,7 @@ from difflib import SequenceMatcher
 from typing import Literal
 
 from app.models import Line
+from app.services.hangul import romanize
 from app.services.text import normalize_text
 
 # [mm:ss], [mm:ss.x], [mm:ss.xx], [mm:ss.xxx]; some files use ':' before the fraction.
@@ -22,6 +23,11 @@ MAX_LINE_COUNT_DIFF_RATIO = 0.2
 MIN_LINE_COUNT_DIFF = 4
 MIN_MATCHED_RATIO = 0.7
 LINE_SIMILARITY = 0.85
+# Pasted native lyrics vs a romanized upload: compared as loose_key()s, which
+# still differ in liaison / spelling details, so the bar is lower.
+RETIME_LINE_SIMILARITY = 0.6
+# Unmatched lines after the last matched one: this many seconds apart.
+RETIME_TAIL_STEP = 2.0
 
 BreakSource = Literal["plain", "gap", "plain_only", "none"]
 
@@ -105,16 +111,28 @@ def parse_plain(text: str) -> list[Line]:
     return lines
 
 
-def _lines_match(a: str, b: str) -> bool:
-    if a == b:
-        return bool(a)
+@dataclass
+class RetimeResult:
+    lines: list[Line]
+    matched: int
+    total: int
+
+
+def _match_weight(a: str, b: str, threshold: float = LINE_SIMILARITY) -> float:
+    """0 if the lines don't match, else 1 + similarity (so the most matches
+    win first, and among equal counts the closer pairing)."""
     if not a or not b:
-        return False
-    return SequenceMatcher(None, a, b).ratio() >= LINE_SIMILARITY
+        return 0.0
+    if a == b:
+        return 2.0
+    ratio = SequenceMatcher(None, a, b).ratio()
+    return 1.0 + ratio if ratio >= threshold else 0.0
 
 
-def align(plain: list[str], synced: list[str]) -> list[tuple[int, int]] | None:
-    """In-order fuzzy alignment (LCS) of normalized lines.
+def align(
+    plain: list[str], synced: list[str], threshold: float = LINE_SIMILARITY
+) -> list[tuple[int, int]] | None:
+    """In-order fuzzy alignment (weighted LCS) of normalized lines.
 
     Returns (plain_index, synced_index) pairs, or None when the two texts
     differ too much to trust the result.
@@ -125,20 +143,18 @@ def align(plain: list[str], synced: list[str]) -> list[tuple[int, int]] | None:
     allowed_diff = max(MIN_LINE_COUNT_DIFF, MAX_LINE_COUNT_DIFF_RATIO * max(n, m))
     if abs(n - m) > allowed_diff:
         return None
-    # dp[i][j] = LCS length of plain[i:] and synced[j:]
-    dp = [[0] * (m + 1) for _ in range(n + 1)]
-    match = [[False] * m for _ in range(n)]
+    # dp[i][j] = best total weight aligning plain[i:] with synced[j:]
+    dp = [[0.0] * (m + 1) for _ in range(n + 1)]
+    weight = [[0.0] * m for _ in range(n)]
     for i in range(n - 1, -1, -1):
         for j in range(m - 1, -1, -1):
-            match[i][j] = _lines_match(plain[i], synced[j])
-            if match[i][j]:
-                dp[i][j] = dp[i + 1][j + 1] + 1
-            else:
-                dp[i][j] = max(dp[i + 1][j], dp[i][j + 1])
+            w = weight[i][j] = _match_weight(plain[i], synced[j], threshold)
+            dp[i][j] = max(dp[i + 1][j], dp[i][j + 1], dp[i + 1][j + 1] + w if w else 0.0)
     pairs: list[tuple[int, int]] = []
     i = j = 0
     while i < n and j < m:
-        if match[i][j] and dp[i][j] == dp[i + 1][j + 1] + 1:
+        w = weight[i][j]
+        if w and dp[i][j] == dp[i + 1][j + 1] + w:
             pairs.append((i, j))
             i += 1
             j += 1
@@ -176,6 +192,83 @@ def apply_plain_breaks(lines: list[Line], plain_text: str) -> bool:
             lines[j].break_before = True
         pending = False
     return True
+
+
+# Spelling variants that romanizations of the same Korean line disagree on.
+_LOOSE_DIGRAPHS = [("eo", "o"), ("eu", "u"), ("ae", "e"), ("oe", "e"), ("wo", "o"), ("ch", "j"), ("sh", "s")]
+_LOOSE_LETTERS = str.maketrans({"k": "g", "t": "d", "p": "b", "r": "l"})
+
+
+def loose_key(text: str) -> str:
+    """Comparison key for romanized (or romanizable) text.
+
+    Hangul is romanized, then spelling variants are folded together
+    (eo/o, k/g, r/l, ...) and doubled letters collapsed ("isseo" ~ "itseo").
+    """
+    key = normalize_text(romanize(text))
+    for old, new in _LOOSE_DIGRAPHS:
+        key = key.replace(old, new)
+    key = key.translate(_LOOSE_LETTERS)
+    return "".join(ch for i, ch in enumerate(key) if i == 0 or ch != key[i - 1])
+
+
+def _fill_gap(times: list[float | None], start: int, end: int, timed: list[float], j0: int, j1: int) -> None:
+    """Give times[start:end] (unmatched native lines) values between matched neighbours.
+
+    j0 / j1: the timed indices of the matched lines around the gap (-1 /
+    len(timed) at the edges). When the gap holds as many timed lines as
+    native ones, they pair up one to one; otherwise times are spread evenly.
+    """
+    count = end - start
+    if count <= 0:
+        return
+    between = timed[j0 + 1 : j1]
+    if len(between) == count:
+        times[start:end] = between
+        return
+    before = times[start - 1] if start > 0 else None
+    after = times[end] if end < len(times) else None
+    for k in range(count):
+        if before is not None and after is not None:
+            times[start + k] = before + (after - before) * (k + 1) / (count + 1)
+        elif after is not None:  # leading lines
+            times[start + k] = max(0.0, after - RETIME_TAIL_STEP * (count - k))
+        else:  # trailing lines
+            times[start + k] = before + RETIME_TAIL_STEP * (k + 1)
+
+
+def transfer_timestamps(native_text: str, timed: list[Line]) -> RetimeResult | None:
+    """Put the timing of `timed` (e.g. a romanized upload) onto pasted native lyrics.
+
+    Lines are matched in order by loose_key(); matched lines take the timed
+    line's t, the rest are filled from their neighbours. Paragraph breaks
+    come from the pasted text's blank lines. None if the texts don't line up
+    (or `timed` has no timing).
+    """
+    native = parse_plain(native_text)
+    if not native or not timed or any(line.t is None for line in timed):
+        return None
+    pairs = align(
+        [loose_key(line.text) for line in native],
+        [loose_key(line.text) for line in timed],
+        threshold=RETIME_LINE_SIMILARITY,
+    )
+    if pairs is None:
+        return None
+    timed_t = [line.t for line in timed]
+    times: list[float | None] = [None] * len(native)
+    for i, j in pairs:
+        times[i] = timed_t[j]
+    prev_i, prev_j = -1, -1
+    for i, j in [*pairs, (len(native), len(timed))]:
+        _fill_gap(times, prev_i + 1, i, timed_t, prev_j, j)
+        prev_i, prev_j = i, j
+    # never let a line start before the one above it
+    last = 0.0
+    for i, t in enumerate(times):
+        last = max(last, t)
+        native[i].t = round(last, 3)
+    return RetimeResult(native, matched=len(pairs), total=len(native))
 
 
 def apply_gap_breaks(lines: list[Line], gap: float = GAP_BREAK_SECONDS) -> None:

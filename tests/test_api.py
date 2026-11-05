@@ -388,6 +388,48 @@ def test_retranslate_bad_index(built):
     assert res.status_code == 400
 
 
+def test_replace_lyrics_keeps_timing_and_retranslates(built):
+    built.set_backend(FakeBackend(prefix="新"))
+    text = "Line One!\nline two\n\nchorus\nchorus\nadded line\nlast line"
+    res = built.client.post("/api/songs/test-artist/paper-moon/lyrics", json={"text": text})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["retime"] == {"matched": 5, "total": 6}
+    song = data["song"]
+    assert song["synced"] is True
+    assert [line["t"] for line in song["lines"]] == [10.0, 14.0, 30.0, 40.0, 125.0, 210.0]
+    assert [line["text"] for line in song["lines"]][0] == "Line One!"
+    assert all(line["tr"].startswith("新:") for line in song["lines"])
+    assert built.client.get("/api/songs/test-artist/paper-moon").json()["song"]["lines"][4]["text"] == "added line"
+
+
+def test_replace_lyrics_mismatch_is_400_and_leaves_song(built):
+    body = {"text": "one\ntwo\nthree\nfour\nfive"}
+    res = built.client.post("/api/songs/test-artist/paper-moon/lyrics", json=body)
+    assert res.status_code == 400
+    assert "打點同步" in res.json()["detail"]
+    assert built.client.get("/api/songs/test-artist/paper-moon").json()["song"]["lines"][0]["text"] == "line one"
+
+
+def test_replace_lyrics_unsynced_fallback(built):
+    body = {"text": "one\ntwo\n\nthree", "allow_unsynced": True}
+    res = built.client.post("/api/songs/test-artist/paper-moon/lyrics", json=body)
+    assert res.status_code == 200
+    song = res.json()["song"]
+    assert res.json()["retime"] is None
+    assert song["synced"] is False
+    assert [(line["t"], line["text"], line["break_before"]) for line in song["lines"]] == [
+        (None, "one", False),
+        (None, "two", False),
+        (None, "three", True),
+    ]
+
+
+def test_replace_lyrics_empty(built):
+    res = built.client.post("/api/songs/test-artist/paper-moon/lyrics", json={"text": " \n\n"})
+    assert res.status_code == 400
+
+
 def test_delete(built):
     assert built.client.delete("/api/songs/test-artist/paper-moon").status_code == 204
     assert built.client.get("/api/library").json() == []

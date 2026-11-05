@@ -27,7 +27,7 @@ from app.models import (
 )
 from app.services import translator, youtube
 from app.services.library import Library, song_slugs
-from app.services.lrc_parser import build_lines
+from app.services.lrc_parser import build_lines, parse_plain, transfer_timestamps
 from app.services.lrclib import LrclibClient, LrclibError
 from app.services.text import same_name
 from app.services.youtube import ScoredVideo
@@ -419,20 +419,60 @@ def retranslate(
             if bad:
                 raise PipelineError(f"行號超出範圍：{bad}")
             line_indices = sorted(set(line_indices))
-        result = translator.translate(texts, line_indices=line_indices, backend=backend)
-        lines = [line.model_copy() for line in song.lines]
-        for i, tr in result.translations.items():
-            # keep the old translation if the new one failed
-            if tr:
-                lines[i].tr = tr
-        song = song.model_copy(
-            update={
-                "lines": lines,
-                "translator": TranslatorInfo(
-                    model=settings.translate_model, prompt_version=translator.PROMPT_VERSION
-                ),
-            }
-        )
+        song, missing = _translate_lines(song, line_indices, backend)
         song = lib.update_song(artist_slug, title_slug, song)
-        return song_response(song, missing_translations=result.missing)
+        return song_response(song, missing_translations=missing)
+
+
+def _translate_lines(
+    song: Song, line_indices: list[int] | None, backend: translator.Backend | None
+) -> tuple[Song, list[int]]:
+    """Translate the given lines (all if None); a failed line keeps its old translation."""
+    result = translator.translate([line.text for line in song.lines], line_indices=line_indices, backend=backend)
+    lines = [line.model_copy() for line in song.lines]
+    for i, tr in result.translations.items():
+        if tr:
+            lines[i].tr = tr
+    song = song.model_copy(
+        update={
+            "lines": lines,
+            "translator": TranslatorInfo(model=settings.translate_model, prompt_version=translator.PROMPT_VERSION),
+        }
+    )
+    return song, result.missing
+
+
+def replace_lyrics(
+    lib: Library,
+    artist_slug: str,
+    title_slug: str,
+    text: str,
+    allow_unsynced: bool = False,
+    backend: translator.Backend | None = None,
+) -> SongResponse:
+    """Swap in pasted original lyrics (e.g. Korean for a romanized LRCLIB upload).
+
+    The current lines' timing is carried over by fuzzy alignment; if that
+    fails, the song is saved unsynced (for tap sync) only when allow_unsynced.
+    Everything is retranslated from the new text.
+    """
+    key = str(lib.song_path(artist_slug, title_slug))
+    with song_lock(key):
+        song = lib.get_song(artist_slug, title_slug)
+        if not parse_plain(text):
+            raise PipelineError("沒有貼上歌詞")
+        retimed = transfer_timestamps(text, song.lines) if song.synced else None
+        if retimed is not None:
+            lines, synced = retimed.lines, True
+            retime = {"matched": retimed.matched, "total": retimed.total}
+        elif allow_unsynced:
+            lines, synced, retime = parse_plain(text), False, None
+        else:
+            raise PipelineError(
+                "貼上的歌詞和現有的時間軸對不上（行數或內容差太多）。可以改存成未同步，之後用「打點同步」。"
+            )
+        song = song.model_copy(update={"lines": lines, "synced": synced})
+        song, missing = _translate_lines(song, None, backend)
+        song = lib.update_song(artist_slug, title_slug, song)
+        return song_response(song, missing_translations=missing, retime=retime)
 

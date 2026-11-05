@@ -160,6 +160,7 @@ def test_guest_can_browse_play_and_resolve(guest):
         ("PATCH", "/api/songs/test-artist/song-1", {"title": "Renamed"}),
         ("PATCH", "/api/songs/test-artist/song-1", {"video_id": "ABCDEFGHIJK"}),
         ("POST", "/api/songs/test-artist/song-1/retranslate", {}),
+        ("POST", "/api/songs/test-artist/song-1/lyrics", {"text": "x", "allow_unsynced": True}),
         ("DELETE", "/api/songs/test-artist/song-1", None),
     ],
 )

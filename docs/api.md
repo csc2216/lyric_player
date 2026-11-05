@@ -8,6 +8,7 @@
 | POST | `/api/build` | body `{lrclib_id, video_id, force?}` → 翻譯、存檔、回傳 song |
 | PATCH | `/api/songs/{a}/{t}` | 改 `offset_ms`、`youtube.video_id`、單行 `tr`、`artist`、`title`、`lines[*].t` |
 | POST | `/api/songs/{a}/{t}/retranslate` | body `{line_indices?}`，不給就全部重翻 |
+| POST | `/api/songs/{a}/{t}/lyrics` | body `{text, allow_unsynced?}`：替換原文歌詞，沿用現有時間軸並整首重翻（見下） |
 | DELETE | `/api/songs/{a}/{t}` | 刪除 |
 
 `auto_ok = true` 的條件：第一名 LRCLIB 候選有 synced 歌詞、不是羅馬拼音版、且明顯領先第二名、且最佳影片時長差 ≤ 3 秒。
@@ -22,3 +23,8 @@
 - 同一首歌的 build / patch / retranslate 用 per-song lock 串行化；build 時若等過別人的鎖且歌已存在，直接回傳既有結果（即使 `force=true`），連按兩次不會翻兩次。
 - 錯誤對應：找不到 404、同名衝突 409、參數錯誤 400、LRCLIB / YouTube / 翻譯失敗 502，body 皆為 `{"detail": "中文訊息"}`。
 前端在 `auto_ok` 時直接呼叫 `/build`（全自動）；否則顯示候選讓我選。
+
+替換原文歌詞（`POST /api/songs/{a}/{t}/lyrics`，owner 限定、per-song lock）：
+- `text` 依 plain 規則解析（空行 = 分段）。歌是 synced 時用 `lrc_parser.transfer_timestamps` 把現有行的時間移植到新行（見 `docs/backend.md` §6），成功 → `synced = true`，回應帶 `retime: {matched, total}`。
+- 對不上（或歌本來就沒有時間軸）：`allow_unsynced = false` → 400「…可以改存成未同步，之後用『打點同步』」，歌不變；`allow_unsynced = true` → 存成 `t = null`、`synced = false`，`retime = null`。
+- 之後整首重翻（同 retranslate，更新 `translator`）；翻譯失敗 502、空文字 400、訪客 403。

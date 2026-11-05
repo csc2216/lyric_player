@@ -595,6 +595,15 @@ button.small.danger {
   flex: 1;
 }
 
+.panel-lyrics textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 8px;
+  font: inherit;
+  resize: vertical;
+}
+
 .panel-actions {
   display: flex;
   gap: 8px;
@@ -1105,6 +1114,7 @@ body.tapping .line-actions {
 /* visitors: no server-changing actions (they're refused by the server anyway) */
 body.role-guest #delete-button,
 body.role-guest #info-button,
+body.role-guest #lyrics-button,
 body.role-guest #retranslate-all-button,
 body.role-guest #video-button,
 body.role-guest .line-actions {
@@ -1115,6 +1125,7 @@ body.role-guest .line-actions {
 body.offline .create-form,
 body.offline #delete-button,
 body.offline #info-button,
+body.offline #lyrics-button,
 body.offline #retranslate-all-button,
 body.offline #video-button {
   opacity: 0.4;
